@@ -10,56 +10,54 @@ public class UnCliente implements Runnable {
     private final DataInputStream entrada;
     private final Socket socket;
     private String nombreCliente;
+    private boolean autenticado;
+    private int mensajesEnviados;
 
     public UnCliente(Socket socket) throws IOException {
         this.socket = socket;
         this.salida = new DataOutputStream(socket.getOutputStream());
         this.entrada = new DataInputStream(socket.getInputStream());
         this.nombreCliente = null;
+        this.autenticado = false;
+        this.mensajesEnviados = 0;
     }
 
     @Override
     public void run() {
         try {
-            
             salida.writeUTF("=== BIENVENIDO AL CHAT ===");
-            salida.writeUTF("Por favor, ingresa tu nombre:");
+            salida.writeUTF("Puedes enviar 3 mensajes de prueba antes de registrarte.");
+            salida.writeUTF("Escribe 'registrar' o 'login' cuando quieras autenticarte.");
             
-            
-            boolean nombreValido = false;
-            while (!nombreValido) {
-                nombreCliente = entrada.readUTF().trim();
-                
-                if (nombreCliente.isEmpty()) {
-                    salida.writeUTF("El nombre no puede estar vacío. Intenta de nuevo:");
-                    continue;
-                }
-                
-                if (nombreCliente.contains(" ") || nombreCliente.contains("@")) {
-                    salida.writeUTF("El nombre no puede contener espacios ni '@'. Intenta de nuevo:");
-                    continue;
-                }
-                
-                if (ServidorMulti.nombreDisponible(nombreCliente)) {
-                    ServidorMulti.registrarCliente(nombreCliente, this);
-                    nombreValido = true;
-                    salida.writeUTF("¡Bienvenido, " + nombreCliente + "! Ya puedes comenzar a chatear.");
-                    System.out.println("Se conectó: " + nombreCliente);
-                    
-                    // Notificar a todos los demás que alguien nuevo se conectó
-                    notificarATodos(nombreCliente + " se ha unido al chat.", this);
-                } else {
-                    salida.writeUTF("El nombre '" + nombreCliente + "' ya está en uso. Elige otro:");
-                }
-            }
+            // Asignar nombre temporal
+            nombreCliente = "invitado_" + System.currentTimeMillis();
+            ServidorMulti.registrarCliente(nombreCliente, this);
             
             // Bucle principal de mensajes
             while (true) {
                 String mensaje = entrada.readUTF();
+                
+                // Comandos de autenticación
+                if (mensaje.equalsIgnoreCase("registrar")) {
+                    registrarUsuario();
+                    continue;
+                } 
+                
+                // Verificar si puede enviar mensajes
+                if (!autenticado && mensajesEnviados >= 3) {
+                    salida.writeUTF("[SISTEMA]: Has alcanzado el límite de 3 mensajes.");
+                    salida.writeUTF("[SISTEMA]: Escribe 'registrar' para crear una cuenta o 'login' para iniciar sesión.");
+                    continue;
+                }
+                
                 System.out.println("[" + nombreCliente + "]: " + mensaje);
                
-                // Mensaje privado
                 if (mensaje.startsWith("@")) {
+                    if (!autenticado && mensajesEnviados >= 3) {
+                        salida.writeUTF("[SISTEMA]: Debes autenticarte para enviar mensajes.");
+                        continue;
+                    }
+                    
                     String[] partes = mensaje.split(" ", 2);
                     if (partes.length >= 2) {
                         String destino = partes[0].substring(1);
@@ -69,6 +67,7 @@ public class UnCliente implements Runnable {
                         if (clienteDestino != null) {
                             clienteDestino.salida.writeUTF("[PRIVADO de " + nombreCliente + "]: " + textoMensaje);
                             salida.writeUTF("[Mensaje privado enviado a " + destino + "]: " + textoMensaje);
+                            if (!autenticado) mensajesEnviados++;
                         } else {
                             salida.writeUTF("[ERROR]: Usuario '" + destino + "' no encontrado.");
                         }
@@ -78,10 +77,20 @@ public class UnCliente implements Runnable {
                     continue;
                 }
              
-                // Mensaje público - enviar a TODOS EXCEPTO al remitente
+                // Mensaje público
+                if (!autenticado) {
+                    mensajesEnviados++;
+                    int restantes = 3 - mensajesEnviados;
+                    if (restantes > 0) {
+                        salida.writeUTF("[SISTEMA]: Mensaje enviado. Te quedan " + restantes + " mensajes.");
+                    } else {
+                        salida.writeUTF("[SISTEMA]: Has usado tus 3 mensajes gratuitos. Escribe 'registrar' o 'login' para continuar.");
+                    }
+                }
+                
                 String mensajeCompleto = "[" + nombreCliente + "]: " + mensaje;
                 for (UnCliente cliente : ServidorMulti.clientes.values()) {
-                    if (cliente != this) {  // NO enviar al remitente
+                    if (cliente != this) {
                         cliente.salida.writeUTF(mensajeCompleto);
                     }
                 }
@@ -89,7 +98,6 @@ public class UnCliente implements Runnable {
         } catch (IOException ex) {
             System.out.println(nombreCliente + " se desconectó.");
         } finally {
-            // Limpiar recursos y notificar desconexión
             if (nombreCliente != null) {
                 ServidorMulti.clientes.remove(nombreCliente);
                 notificarATodos(nombreCliente + " se ha desconectado.", this);
@@ -102,7 +110,48 @@ public class UnCliente implements Runnable {
         }
     }
     
+    private void registrarUsuario() throws IOException {
+        salida.writeUTF("[SISTEMA]: === REGISTRO ===");
+        salida.writeUTF("[SISTEMA]: Ingresa tu nuevo nombre de usuario:");
+        
+        String nuevoNombre = entrada.readUTF().trim();
+        
+        if (nuevoNombre.isEmpty() || nuevoNombre.contains(" ") || nuevoNombre.contains("@")) {
+            salida.writeUTF("[ERROR]: Nombre inválido. Intenta de nuevo escribiendo 'registrar'.");
+            return;
+        }
+        
+        if (!ServidorMulti.nombreDisponible(nuevoNombre)) {
+            salida.writeUTF("[ERROR]: El nombre '" + nuevoNombre + "' ya está en uso.");
+            return;
+        }
+        
+        salida.writeUTF("[SISTEMA]: Ingresa tu contraseña:");
+        String password = entrada.readUTF().trim();
+        
+        if (password.isEmpty()) {
+            salida.writeUTF("[ERROR]: La contraseña no puede estar vacía.");
+            return;
+        }
+        
+       
+        ServidorMulti.registrarUsuario(nuevoNombre, password);
+        
+     
+        ServidorMulti.clientes.remove(nombreCliente);
+        String nombreAnterior = nombreCliente;
+        nombreCliente = nuevoNombre;
+        ServidorMulti.registrarCliente(nombreCliente, this);
+        autenticado = true;
+        mensajesEnviados = 0;
+        
+        salida.writeUTF("[SISTEMA]: ¡Registro exitoso! Ahora eres: " + nombreCliente);
+        System.out.println(nombreAnterior + " se registró como: " + nombreCliente);
+        notificarATodos(nombreCliente + " se ha unido al chat.", this);
+    }
+    
  
+    
     private void notificarATodos(String mensaje, UnCliente remitente) {
         for (UnCliente cliente : ServidorMulti.clientes.values()) {
             if (cliente != remitente) {
