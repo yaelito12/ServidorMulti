@@ -29,21 +29,21 @@ public class UnCliente implements Runnable {
             salida.writeUTF("Puedes enviar 3 mensajes de prueba antes de registrarte.");
             salida.writeUTF("Escribe 'registrar' o 'login' cuando quieras autenticarte.");
             
-            // Asignar nombre temporal
             nombreCliente = "invitado_" + System.currentTimeMillis();
             ServidorMulti.registrarCliente(nombreCliente, this);
             
-            // Bucle principal de mensajes
+          
             while (true) {
                 String mensaje = entrada.readUTF();
                 
-                // Comandos de autenticación
                 if (mensaje.equalsIgnoreCase("registrar")) {
                     registrarUsuario();
                     continue;
-                } 
+                } else if (mensaje.equalsIgnoreCase("login")) {
+                    iniciarSesion();
+                    continue;
+                }
                 
-                // Verificar si puede enviar mensajes
                 if (!autenticado && mensajesEnviados >= 3) {
                     salida.writeUTF("[SISTEMA]: Has alcanzado el límite de 3 mensajes.");
                     salida.writeUTF("[SISTEMA]: Escribe 'registrar' para crear una cuenta o 'login' para iniciar sesión.");
@@ -77,7 +77,7 @@ public class UnCliente implements Runnable {
                     continue;
                 }
              
-                // Mensaje público
+                
                 if (!autenticado) {
                     mensajesEnviados++;
                     int restantes = 3 - mensajesEnviados;
@@ -150,7 +150,35 @@ public class UnCliente implements Runnable {
         notificarATodos(nombreCliente + " se ha unido al chat.", this);
     }
     
- 
+    private void iniciarSesion() throws IOException {
+        salida.writeUTF("[SISTEMA]: === INICIO DE SESIÓN ===");
+        salida.writeUTF("[SISTEMA]: Ingresa tu nombre de usuario:");
+        
+        String nombre = entrada.readUTF().trim();
+        
+        salida.writeUTF("[SISTEMA]: Ingresa tu contraseña:");
+        String password = entrada.readUTF().trim();
+        
+        if (ServidorMulti.autenticarUsuario(nombre, password)) {
+            if (!ServidorMulti.nombreDisponible(nombre)) {
+                salida.writeUTF("[ERROR]: El usuario ya está conectado en otra sesión.");
+                return;
+            }
+            
+            ServidorMulti.clientes.remove(nombreCliente);
+            String nombreAnterior = nombreCliente;
+            nombreCliente = nombre;
+            ServidorMulti.registrarCliente(nombreCliente, this);
+            autenticado = true;
+            mensajesEnviados = 0;
+            
+            salida.writeUTF("[SISTEMA]: ¡Inicio de sesión exitoso! Bienvenido de nuevo, " + nombreCliente);
+            System.out.println(nombreAnterior + " inició sesión como: " + nombreCliente);
+            notificarATodos(nombreCliente + " se ha unido al chat.", this);
+        } else {
+            salida.writeUTF("[ERROR]: Usuario o contraseña incorrectos.");
+        }
+    }
     
     private void notificarATodos(String mensaje, UnCliente remitente) {
         for (UnCliente cliente : ServidorMulti.clientes.values()) {
