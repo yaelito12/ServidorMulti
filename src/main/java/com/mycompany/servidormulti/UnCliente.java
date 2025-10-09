@@ -28,6 +28,7 @@ public class UnCliente implements Runnable {
             salida.writeUTF("=== BIENVENIDO AL CHAT ===");
             salida.writeUTF("Puedes enviar 3 mensajes de prueba antes de registrarte.");
             salida.writeUTF("Escribe 'registrar' o 'login' cuando quieras autenticarte.");
+            salida.writeUTF("Escribe 'logout' para cerrar sesión.");
             
             nombreCliente = "invitado_" + System.currentTimeMillis();
             ServidorMulti.registrarCliente(nombreCliente, this);
@@ -41,6 +42,9 @@ public class UnCliente implements Runnable {
                     continue;
                 } else if (mensaje.equalsIgnoreCase("login")) {
                     iniciarSesion();
+                    continue;
+                } else if (mensaje.equalsIgnoreCase("logout")) {
+                    cerrarSesion();
                     continue;
                 }
                 
@@ -179,7 +183,30 @@ public class UnCliente implements Runnable {
             salida.writeUTF("[ERROR]: Usuario o contraseña incorrectos.");
         }
     }
-    //sa
+    
+    private void cerrarSesion() throws IOException {
+        if (!autenticado) {
+            salida.writeUTF("[SISTEMA]: No has iniciado sesión.");
+            return;
+        }
+        
+        String nombreAnterior = nombreCliente;
+        ServidorMulti.clientes.remove(nombreCliente);
+        
+        // Generar nuevo nombre de invitado
+        nombreCliente = "invitado_" + System.currentTimeMillis();
+        ServidorMulti.registrarCliente(nombreCliente, this);
+        
+        autenticado = false;
+        mensajesEnviados = 0;
+        
+        salida.writeUTF("[SISTEMA]: Has cerrado sesión. Ahora eres: " + nombreCliente);
+        salida.writeUTF("[SISTEMA]: Tienes 3 mensajes gratuitos. Escribe 'login' para iniciar sesión nuevamente.");
+        System.out.println(nombreAnterior + " cerró sesión y ahora es: " + nombreCliente);
+        
+        notificarATodos(nombreAnterior + " ha cerrado sesión.", this);
+    }
+    
     private void notificarATodos(String mensaje, UnCliente remitente) {
         for (UnCliente cliente : ServidorMulti.clientes.values()) {
             if (cliente != remitente) {
