@@ -82,7 +82,7 @@ public class UnCliente implements Runnable {
                 }
              
                 
-                if (!autenticado) {
+                if (!autenticado) { 
                     mensajesEnviados++;
                     int restantes = 3 - mensajesEnviados;
                     if (restantes > 0) {
