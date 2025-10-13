@@ -128,7 +128,7 @@ public class UnCliente implements Runnable {
             return;
         }
         
-        if (usuarioExiste(nuevoNombre)) {
+        if (!ServidorMulti.nombreDisponible(nuevoNombre) || ServidorMulti.autenticarUsuario(nuevoNombre, "")) {
             salida.writeUTF("[ERROR]: El nombre '" + nuevoNombre + "' ya está en uso.");
             return;
         }
@@ -141,7 +141,7 @@ public class UnCliente implements Runnable {
             return;
         }
        
-        guardarUsuario(nuevoNombre, password);
+        ServidorMulti.registrarUsuario(nuevoNombre, password);
         
         ServidorMulti.clientes.remove(nombreCliente);
         String nombreAnterior = nombreCliente;
