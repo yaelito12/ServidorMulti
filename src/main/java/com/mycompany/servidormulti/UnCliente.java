@@ -1,9 +1,8 @@
 package com.mycompany.servidormulti;
 
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.IOException;
+import java.io.*;
 import java.net.Socket;
+import java.nio.file.*;
 
 public class UnCliente implements Runnable {
     private final DataOutputStream salida;
@@ -12,6 +11,7 @@ public class UnCliente implements Runnable {
     private String nombreCliente;
     private boolean autenticado;
     private int mensajesEnviados;
+    private static final String ARCHIVO_USUARIOS = "usuarios.txt";
 
     public UnCliente(Socket socket) throws IOException {
         this.socket = socket;
@@ -20,6 +20,9 @@ public class UnCliente implements Runnable {
         this.nombreCliente = null;
         this.autenticado = false;
         this.mensajesEnviados = 0;
+        
+        // Crear archivo si no existe
+        crearArchivoSiNoExiste();
     }
 
     @Override
@@ -125,7 +128,7 @@ public class UnCliente implements Runnable {
             return;
         }
         
-        if (!ServidorMulti.nombreDisponible(nuevoNombre)) {
+        if (usuarioExiste(nuevoNombre)) {
             salida.writeUTF("[ERROR]: El nombre '" + nuevoNombre + "' ya está en uso.");
             return;
         }
@@ -137,11 +140,9 @@ public class UnCliente implements Runnable {
             salida.writeUTF("[ERROR]: La contraseña no puede estar vacía.");
             return;
         }
-        
        
-        ServidorMulti.registrarUsuario(nuevoNombre, password);
+        guardarUsuario(nuevoNombre, password);
         
-     
         ServidorMulti.clientes.remove(nombreCliente);
         String nombreAnterior = nombreCliente;
         nombreCliente = nuevoNombre;
@@ -163,8 +164,8 @@ public class UnCliente implements Runnable {
         salida.writeUTF("[SISTEMA]: Ingresa tu contraseña:");
         String password = entrada.readUTF().trim();
         
-        if (ServidorMulti.autenticarUsuario(nombre, password)) {
-            if (!ServidorMulti.nombreDisponible(nombre)) {
+        if (autenticarUsuario(nombre, password)) {
+            if (!nombreDisponible(nombre)) {
                 salida.writeUTF("[ERROR]: El usuario ya está conectado en otra sesión.");
                 return;
             }
@@ -193,7 +194,6 @@ public class UnCliente implements Runnable {
         String nombreAnterior = nombreCliente;
         ServidorMulti.clientes.remove(nombreCliente);
         
-        // Generar nuevo nombre de invitado
         nombreCliente = "invitado_" + System.currentTimeMillis();
         ServidorMulti.registrarCliente(nombreCliente, this);
         
@@ -217,5 +217,64 @@ public class UnCliente implements Runnable {
                 }
             }
         }
+    }
+    
+    // ===== MÉTODOS PARA GESTIÓN DE ARCHIVO TXT =====
+    
+    private static void crearArchivoSiNoExiste() {
+        try {
+            Path path = Paths.get(ARCHIVO_USUARIOS);
+            if (Files.notExists(path)) {
+                Files.createFile(path);
+                System.out.println("Archivo de usuarios creado: " + ARCHIVO_USUARIOS);
+            }
+        } catch (IOException e) {
+            System.err.println("Error al crear archivo: " + e.getMessage());
+        }
+    }
+    
+    private static synchronized void guardarUsuario(String nombre, String password) {
+        try (FileWriter fw = new FileWriter(ARCHIVO_USUARIOS, true);
+             BufferedWriter bw = new BufferedWriter(fw)) {
+            bw.write(nombre + ":" + password);
+            bw.newLine();
+            System.out.println("Usuario guardado: " + nombre);
+        } catch (IOException e) {
+            System.err.println("Error al guardar usuario: " + e.getMessage());
+        }
+    }
+    
+    private static boolean usuarioExiste(String nombre) {
+        try (BufferedReader br = new BufferedReader(new FileReader(ARCHIVO_USUARIOS))) {
+            String linea;
+            while ((linea = br.readLine()) != null) {
+                String[] datos = linea.split(":");
+                if (datos.length >= 1 && datos[0].equals(nombre)) {
+                    return true;
+                }
+            }
+        } catch (IOException e) {
+            System.err.println("Error al verificar usuario: " + e.getMessage());
+        }
+        return false;
+    }
+    
+    private static boolean autenticarUsuario(String nombre, String password) {
+        try (BufferedReader br = new BufferedReader(new FileReader(ARCHIVO_USUARIOS))) {
+            String linea;
+            while ((linea = br.readLine()) != null) {
+                String[] datos = linea.split(":");
+                if (datos.length == 2 && datos[0].equals(nombre) && datos[1].equals(password)) {
+                    return true;
+                }
+            }
+        } catch (IOException e) {
+            System.err.println("Error al autenticar usuario: " + e.getMessage());
+        }
+        return false;
+    }
+    
+    private static boolean nombreDisponible(String nombre) {
+        return !ServidorMulti.clientes.containsKey(nombre);
     }
 }
