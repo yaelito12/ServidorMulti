@@ -154,10 +154,55 @@ public class UnCliente implements Runnable {
             return;
         }
         
-       
+        if (!ServidorMulti.usuarios.containsKey(usuarioABloquear)) {
+            salida.writeUTF("[ERROR]: El usuario '" + usuarioABloquear + "' no existe.");
+            return;
+        }
+        
+        if (ServidorMulti.estasBloqueado(nombreCliente, usuarioABloquear)) {
+            salida.writeUTF("[ERROR]: Ya tienes bloqueado a " + usuarioABloquear + ".");
+            return;
+        }
+        
+        if (ServidorMulti.bloquearUsuario(nombreCliente, usuarioABloquear)) {
+            salida.writeUTF("[SISTEMA]: ¡Usuario '" + usuarioABloquear + "' bloqueado correctamente!");
+            System.out.println(nombreCliente + " bloqueó a " + usuarioABloquear);
+        } else {
+            salida.writeUTF("[ERROR]: No se pudo bloquear al usuario. Intenta de nuevo.");
+        }
     }
     
-   
+    private void desbloquearUsuarioCmd(String usuarioADesbloquear) throws IOException {
+        if (!autenticado) {
+            salida.writeUTF("[ERROR]: Debes estar autenticado para desbloquear usuarios.");
+            return;
+        }
+        
+        if (usuarioADesbloquear.isEmpty()) {
+            salida.writeUTF("[ERROR]: Debes especificar un usuario. Usa: desbloquear <nombre_usuario>");
+            return;
+        }
+        
+        if (!ServidorMulti.usuarios.containsKey(usuarioADesbloquear)) {
+            salida.writeUTF("[ERROR]: El usuario '" + usuarioADesbloquear + "' no existe.");
+            return;
+        }
+        
+        if (!ServidorMulti.estasBloqueado(nombreCliente, usuarioADesbloquear)) {
+            salida.writeUTF("[ERROR]: No tienes bloqueado a " + usuarioADesbloquear + ".");
+            return;
+        }
+        
+        if (ServidorMulti.desbloquearUsuario(nombreCliente, usuarioADesbloquear)) {
+            salida.writeUTF("[SISTEMA]: ¡Usuario '" + usuarioADesbloquear + "' desbloqueado correctamente!");
+            System.out.println(nombreCliente + " desbloqueó a " + usuarioADesbloquear);
+        } else {
+            salida.writeUTF("[ERROR]: No se pudo desbloquear al usuario. Intenta de nuevo.");
+        }
+    }
+    
+    
+    
     private void registrarUsuario() throws IOException {
         salida.writeUTF("[SISTEMA]: === REGISTRO ===");
         salida.writeUTF("[SISTEMA]: Ingresa tu nuevo nombre de usuario:");
