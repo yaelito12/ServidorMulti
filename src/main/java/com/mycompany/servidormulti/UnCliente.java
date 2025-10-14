@@ -2,7 +2,6 @@ package com.mycompany.servidormulti;
 
 import java.io.*;
 import java.net.Socket;
-import java.nio.file.*;
 
 public class UnCliente implements Runnable {
     private final DataOutputStream salida;
@@ -11,7 +10,6 @@ public class UnCliente implements Runnable {
     private String nombreCliente;
     private boolean autenticado;
     private int mensajesEnviados;
-    private static final String ARCHIVO_USUARIOS = "usuarios.txt";
 
     public UnCliente(Socket socket) throws IOException {
         this.socket = socket;
@@ -20,9 +18,6 @@ public class UnCliente implements Runnable {
         this.nombreCliente = null;
         this.autenticado = false;
         this.mensajesEnviados = 0;
-        
-        // Crear archivo si no existe
-        crearArchivoSiNoExiste();
     }
 
     @Override
@@ -32,11 +27,11 @@ public class UnCliente implements Runnable {
             salida.writeUTF("Puedes enviar 3 mensajes de prueba antes de registrarte.");
             salida.writeUTF("Escribe 'registrar' o 'login' cuando quieras autenticarte.");
             salida.writeUTF("Escribe 'logout' para cerrar sesión.");
+            salida.writeUTF("Escribe 'help' para ver todos los comandos disponibles.");
             
             nombreCliente = "invitado_" + System.currentTimeMillis();
             ServidorMulti.registrarCliente(nombreCliente, this);
             
-          
             while (true) {
                 String mensaje = entrada.readUTF();
                 
@@ -49,6 +44,18 @@ public class UnCliente implements Runnable {
                 } else if (mensaje.equalsIgnoreCase("logout")) {
                     cerrarSesion();
                     continue;
+                } else if (mensaje.equalsIgnoreCase("help")) {
+                    mostrarAyuda();
+                    continue;
+                } else if (mensaje.toLowerCase().startsWith("bloquear ")) {
+                    bloquearUsuarioCmd(mensaje.substring(9).trim());
+                    continue;
+                } else if (mensaje.toLowerCase().startsWith("desbloquear ")) {
+                    desbloquearUsuarioCmd(mensaje.substring(12).trim());
+                    continue;
+                } else if (mensaje.equalsIgnoreCase("misBloqueados") || mensaje.equalsIgnoreCase("mis bloqueados")) {
+                    mostrarMisBloqueados();
+                    continue;
                 }
                 
                 if (!autenticado && mensajesEnviados >= 3) {
@@ -58,32 +65,11 @@ public class UnCliente implements Runnable {
                 }
                 
                 System.out.println("[" + nombreCliente + "]: " + mensaje);
-               
+                
                 if (mensaje.startsWith("@")) {
-                    if (!autenticado && mensajesEnviados >= 3) {
-                        salida.writeUTF("[SISTEMA]: Debes autenticarte para enviar mensajes.");
-                        continue;
-                    }
-                    
-                    String[] partes = mensaje.split(" ", 2);
-                    if (partes.length >= 2) {
-                        String destino = partes[0].substring(1);
-                        String textoMensaje = partes[1];
-                        UnCliente clienteDestino = ServidorMulti.clientes.get(destino);
-                        
-                        if (clienteDestino != null) {
-                            clienteDestino.salida.writeUTF("[PRIVADO de " + nombreCliente + "]: " + textoMensaje);
-                            salida.writeUTF("[Mensaje privado enviado a " + destino + "]: " + textoMensaje);
-                            if (!autenticado) mensajesEnviados++;
-                        } else {
-                            salida.writeUTF("[ERROR]: Usuario '" + destino + "' no encontrado.");
-                        }
-                    } else {
-                        salida.writeUTF("[ERROR]: Formato incorrecto. Usa: @nombre mensaje");
-                    }
+                    manejarMensajePrivado(mensaje);
                     continue;
                 }
-             
                 
                 if (!autenticado) { 
                     mensajesEnviados++;
@@ -117,6 +103,61 @@ public class UnCliente implements Runnable {
         }
     }
     
+    private void manejarMensajePrivado(String mensaje) throws IOException {
+        String[] partes = mensaje.split(" ", 2);
+        if (partes.length < 2) {
+            salida.writeUTF("[ERROR]: Formato incorrecto. Usa: @nombre mensaje");
+            return;
+        }
+        
+        String destino = partes[0].substring(1);
+        String textoMensaje = partes[1];
+        
+        if (!ServidorMulti.usuarios.containsKey(destino)) {
+            salida.writeUTF("[ERROR]: Usuario '" + destino + "' no existe.");
+            return;
+        }
+        
+        if (!autenticado && mensajesEnviados >= 3) {
+            salida.writeUTF("[ERROR]: Debes autenticarte para enviar mensajes privados.");
+            return;
+        }
+        
+        if (ServidorMulti.estasBloqueado(destino, nombreCliente)) {
+            salida.writeUTF("[ERROR]: No puedes enviar mensajes a " + destino + " (bloqueado).");
+            return;
+        }
+        
+        UnCliente clienteDestino = ServidorMulti.clientes.get(destino);
+        if (clienteDestino != null) {
+            clienteDestino.salida.writeUTF("[PRIVADO de " + nombreCliente + "]: " + textoMensaje);
+            salida.writeUTF("[Mensaje privado enviado a " + destino + "]: " + textoMensaje);
+            if (!autenticado) mensajesEnviados++;
+        } else {
+            salida.writeUTF("[AVISO]: " + destino + " no está conectado en este momento.");
+        }
+    }
+    
+    private void bloquearUsuarioCmd(String usuarioABloquear) throws IOException {
+        if (!autenticado) {
+            salida.writeUTF("[ERROR]: Debes estar autenticado para bloquear usuarios.");
+            return;
+        }
+        
+        if (usuarioABloquear.isEmpty()) {
+            salida.writeUTF("[ERROR]: Debes especificar un usuario. Usa: bloquear <nombre_usuario>");
+            return;
+        }
+        
+        if (usuarioABloquear.equals(nombreCliente)) {
+            salida.writeUTF("[ERROR]: No puedes bloquearte a ti mismo.");
+            return;
+        }
+        
+       
+    }
+    
+   
     private void registrarUsuario() throws IOException {
         salida.writeUTF("[SISTEMA]: === REGISTRO ===");
         salida.writeUTF("[SISTEMA]: Ingresa tu nuevo nombre de usuario:");
@@ -124,11 +165,11 @@ public class UnCliente implements Runnable {
         String nuevoNombre = entrada.readUTF().trim();
         
         if (nuevoNombre.isEmpty() || nuevoNombre.contains(" ") || nuevoNombre.contains("@")) {
-            salida.writeUTF("[ERROR]: Nombre inválido. Intenta de nuevo escribiendo 'registrar'.");
+            salida.writeUTF("[ERROR]: Nombre inválido. No puede contener espacios ni '@'. Intenta de nuevo escribiendo 'registrar'.");
             return;
         }
         
-        if (!ServidorMulti.nombreDisponible(nuevoNombre) || ServidorMulti.autenticarUsuario(nuevoNombre, "")) {
+        if (!ServidorMulti.nombreDisponible(nuevoNombre) || ServidorMulti.usuarios.containsKey(nuevoNombre)) {
             salida.writeUTF("[ERROR]: El nombre '" + nuevoNombre + "' ya está en uso.");
             return;
         }
@@ -140,7 +181,7 @@ public class UnCliente implements Runnable {
             salida.writeUTF("[ERROR]: La contraseña no puede estar vacía.");
             return;
         }
-       
+        
         ServidorMulti.registrarUsuario(nuevoNombre, password);
         
         ServidorMulti.clientes.remove(nombreCliente);
@@ -164,25 +205,26 @@ public class UnCliente implements Runnable {
         salida.writeUTF("[SISTEMA]: Ingresa tu contraseña:");
         String password = entrada.readUTF().trim();
         
-        if (autenticarUsuario(nombre, password)) {
-            if (!nombreDisponible(nombre)) {
-                salida.writeUTF("[ERROR]: El usuario ya está conectado en otra sesión.");
-                return;
-            }
-            
-            ServidorMulti.clientes.remove(nombreCliente);
-            String nombreAnterior = nombreCliente;
-            nombreCliente = nombre;
-            ServidorMulti.registrarCliente(nombreCliente, this);
-            autenticado = true;
-            mensajesEnviados = 0;
-            
-            salida.writeUTF("[SISTEMA]: ¡Inicio de sesión exitoso! Bienvenido de nuevo, " + nombreCliente);
-            System.out.println(nombreAnterior + " inició sesión como: " + nombreCliente);
-            notificarATodos(nombreCliente + " se ha unido al chat.", this);
-        } else {
+        if (!ServidorMulti.autenticarUsuario(nombre, password)) {
             salida.writeUTF("[ERROR]: Usuario o contraseña incorrectos.");
+            return;
         }
+        
+        if (!ServidorMulti.nombreDisponible(nombre)) {
+            salida.writeUTF("[ERROR]: El usuario ya está conectado en otra sesión.");
+            return;
+        }
+        
+        ServidorMulti.clientes.remove(nombreCliente);
+        String nombreAnterior = nombreCliente;
+        nombreCliente = nombre;
+        ServidorMulti.registrarCliente(nombreCliente, this);
+        autenticado = true;
+        mensajesEnviados = 0;
+        
+        salida.writeUTF("[SISTEMA]: ¡Inicio de sesión exitoso! Bienvenido de nuevo, " + nombreCliente);
+        System.out.println(nombreAnterior + " inició sesión como: " + nombreCliente);
+        notificarATodos(nombreCliente + " se ha unido al chat.", this);
     }
     
     private void cerrarSesion() throws IOException {
@@ -217,64 +259,5 @@ public class UnCliente implements Runnable {
                 }
             }
         }
-    }
-    
-    // ===== MÉTODOS PARA GESTIÓN DE ARCHIVO TXT =====
-    
-    private static void crearArchivoSiNoExiste() {
-        try {
-            Path path = Paths.get(ARCHIVO_USUARIOS);
-            if (Files.notExists(path)) {
-                Files.createFile(path);
-                System.out.println("Archivo de usuarios creado: " + ARCHIVO_USUARIOS);
-            }
-        } catch (IOException e) {
-            System.err.println("Error al crear archivo: " + e.getMessage());
-        }
-    }
-    
-    private static synchronized void guardarUsuario(String nombre, String password) {
-        try (FileWriter fw = new FileWriter(ARCHIVO_USUARIOS, true);
-             BufferedWriter bw = new BufferedWriter(fw)) {
-            bw.write(nombre + ":" + password);
-            bw.newLine();
-            System.out.println("Usuario guardado: " + nombre);
-        } catch (IOException e) {
-            System.err.println("Error al guardar usuario: " + e.getMessage());
-        }
-    }
-    
-    private static boolean usuarioExiste(String nombre) {
-        try (BufferedReader br = new BufferedReader(new FileReader(ARCHIVO_USUARIOS))) {
-            String linea;
-            while ((linea = br.readLine()) != null) {
-                String[] datos = linea.split(":");
-                if (datos.length >= 1 && datos[0].equals(nombre)) {
-                    return true;
-                }
-            }
-        } catch (IOException e) {
-            System.err.println("Error al verificar usuario: " + e.getMessage());
-        }
-        return false;
-    }
-    
-    private static boolean autenticarUsuario(String nombre, String password) {
-        try (BufferedReader br = new BufferedReader(new FileReader(ARCHIVO_USUARIOS))) {
-            String linea;
-            while ((linea = br.readLine()) != null) {
-                String[] datos = linea.split(":");
-                if (datos.length == 2 && datos[0].equals(nombre) && datos[1].equals(password)) {
-                    return true;
-                }
-            }
-        } catch (IOException e) {
-            System.err.println("Error al autenticar usuario: " + e.getMessage());
-        }
-        return false;
-    }
-    
-    private static boolean nombreDisponible(String nombre) {
-        return !ServidorMulti.clientes.containsKey(nombre);
     }
 }
