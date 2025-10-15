@@ -1,6 +1,6 @@
 package com.mycompany.servidormulti;
 
-import com.mycompany.BaseDatos;
+import com.mycompany.servidormulti.BaseDatos;
 import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;

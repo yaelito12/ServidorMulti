@@ -16,7 +16,7 @@ public class ClienteMulti {
             hiloParaMandar.start();
             hiloParaRecibir.start();
  
-            // Espera a que el usuario termine (por ejemplo, escribiendo "salir")
+            
             hiloParaMandar.join();
  
         } catch (Exception e) {
