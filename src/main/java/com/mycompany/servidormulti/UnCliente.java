@@ -201,7 +201,36 @@ public class UnCliente implements Runnable {
         }
     }
     
+    private void mostrarMisBloqueados() throws IOException {
+        if (!autenticado) {
+            salida.writeUTF("[ERROR]: Debes estar autenticado para ver tu lista de bloqueados.");
+            return;
+        }
+        
+        java.util.List<String> bloqueados = ServidorMulti.obtenerBloqueados(nombreCliente);
+        
+        if (bloqueados.isEmpty()) {
+            salida.writeUTF("[SISTEMA]: No tienes usuarios bloqueados.");
+        } else {
+            salida.writeUTF("[SISTEMA]: === USUARIOS BLOQUEADOS ===");
+            for (int i = 0; i < bloqueados.size(); i++) {
+                salida.writeUTF((i + 1) + ". " + bloqueados.get(i));
+            }
+            salida.writeUTF("[SISTEMA]: Total: " + bloqueados.size() + " usuario(s) bloqueado(s)");
+        }
+    }
     
+    private void mostrarAyuda() throws IOException {
+        salida.writeUTF("=== COMANDOS DISPONIBLES ===");
+        salida.writeUTF("registrar - Crear una nueva cuenta");
+        salida.writeUTF("login - Iniciar sesión");
+        salida.writeUTF("logout - Cerrar sesión");
+        salida.writeUTF("@<usuario> <mensaje> - Enviar mensaje privado");
+        salida.writeUTF("bloquear <usuario> - Bloquear a un usuario");
+        salida.writeUTF("desbloquear <usuario> - Desbloquear a un usuario");
+        salida.writeUTF("misBloqueados - Ver lista de usuarios bloqueados");
+        salida.writeUTF("help - Mostrar esta ayuda");
+    }
     
     private void registrarUsuario() throws IOException {
         salida.writeUTF("[SISTEMA]: === REGISTRO ===");
