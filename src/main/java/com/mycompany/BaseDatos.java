@@ -47,6 +47,91 @@ public class BaseDatos {
         }
     }
     
+    public HashMap<String, String> cargarTodosLosUsuarios() {
+        HashMap<String, String> usuarios = new HashMap<>();
+        String sql = "SELECT nombre, password FROM usuarios";
+        try (Connection conn = DriverManager.getConnection(DB_URL);
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            
+            while (rs.next()) {
+                usuarios.put(rs.getString("nombre"), rs.getString("password"));
+            }
+        } catch (SQLException e) {
+            System.err.println("Error cargando usuarios: " + e.getMessage());
+        }
+        return usuarios;
+    }
     
+    public synchronized boolean bloquearUsuario(String usuarioActual, String usuarioABloquear) {
+        if (estaBloqueado(usuarioActual, usuarioABloquear)) {
+            return false; // Ya está bloqueado
+        }
+        
+        String sql = "INSERT INTO bloqueados (usuario_que_bloquea, usuario_bloqueado) VALUES (?, ?)";
+        try (Connection conn = DriverManager.getConnection(DB_URL);
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setString(1, usuarioActual);
+            pstmt.setString(2, usuarioABloquear);
+            pstmt.executeUpdate();
+            System.out.println(usuarioActual + " bloqueó a " + usuarioABloquear);
+            return true;
+        } catch (SQLException e) {
+            System.err.println("Error bloqueando usuario: " + e.getMessage());
+            return false;
+        }
+    }
+    
+    public synchronized boolean desbloquearUsuario(String usuarioActual, String usuarioADesbloquear) {
+        if (!estaBloqueado(usuarioActual, usuarioADesbloquear)) {
+            return false; // No está bloqueado
+        }
+        
+        String sql = "DELETE FROM bloqueados WHERE usuario_que_bloquea = ? AND usuario_bloqueado = ?";
+        try (Connection conn = DriverManager.getConnection(DB_URL);
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setString(1, usuarioActual);
+            pstmt.setString(2, usuarioADesbloquear);
+            pstmt.executeUpdate();
+            System.out.println(usuarioActual + " desbloqueó a " + usuarioADesbloquear);
+            return true;
+        } catch (SQLException e) {
+            System.err.println("Error desbloqueando usuario: " + e.getMessage());
+            return false;
+        }
+    }
+    
+    public boolean estaBloqueado(String usuarioOrigen, String usuarioDestino) {
+        String sql = "SELECT COUNT(*) FROM bloqueados WHERE usuario_que_bloquea = ? AND usuario_bloqueado = ?";
+        try (Connection conn = DriverManager.getConnection(DB_URL);
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setString(1, usuarioOrigen);
+            pstmt.setString(2, usuarioDestino);
+            ResultSet rs = pstmt.executeQuery();
+            
+            if (rs.next()) {
+                return rs.getInt(1) > 0;
+            }
+        } catch (SQLException e) {
+            System.err.println("Error verificando bloqueo: " + e.getMessage());
+        }
+        return false;
+    }
+    
+    public List<String> obtenerBloqueados(String usuario) {
+        List<String> bloqueados = new ArrayList<>();
+        String sql = "SELECT usuario_bloqueado FROM bloqueados WHERE usuario_que_bloquea = ? ORDER BY fecha_bloqueo DESC";
+        try (Connection conn = DriverManager.getConnection(DB_URL);
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setString(1, usuario);
+            ResultSet rs = pstmt.executeQuery();
+            
+            while (rs.next()) {
+                bloqueados.add(rs.getString("usuario_bloqueado"));
+            }
+        } catch (SQLException e) {
+            System.err.println("Error obteniendo bloqueados: " + e.getMessage());
+        }
+        return bloqueados;
     }
 }
