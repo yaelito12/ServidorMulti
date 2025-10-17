@@ -47,11 +47,14 @@ public class UnCliente implements Runnable {
                 } else if (mensaje.equalsIgnoreCase("help")) {
                     mostrarAyuda();
                     continue;
-                } else if (mensaje.toLowerCase().startsWith("bloquear ")) {
-                    bloquearUsuarioCmd(mensaje.substring(9).trim());
+                } else if (mensaje.equals("@") || mensaje.equalsIgnoreCase("privado")) {
+                    mostrarUsuariosYEnviarMensaje();
                     continue;
-                } else if (mensaje.toLowerCase().startsWith("desbloquear ")) {
-                    desbloquearUsuarioCmd(mensaje.substring(12).trim());
+                } else if (mensaje.equalsIgnoreCase("bloquear")) {
+                    mostrarUsuariosYBloquear();
+                    continue;
+                } else if (mensaje.equalsIgnoreCase("desbloquear")) {
+                    mostrarBloqueadosYDesbloquear();
                     continue;
                 } else if (mensaje.equalsIgnoreCase("misBloqueados") || mensaje.equalsIgnoreCase("mis bloqueados")) {
                     mostrarMisBloqueados();
@@ -65,11 +68,6 @@ public class UnCliente implements Runnable {
                 }
                 
                 System.out.println("[" + nombreCliente + "]: " + mensaje);
-                
-                if (mensaje.startsWith("@")) {
-                    manejarMensajePrivado(mensaje);
-                    continue;
-                }
                 
                 if (!autenticado) { 
                     mensajesEnviados++;
@@ -103,14 +101,34 @@ public class UnCliente implements Runnable {
         }
     }
     
-    private void manejarMensajePrivado(String mensaje) throws IOException {
-        String[] partes = mensaje.split(" ", 2);
-        if (partes.length < 2) {
-            salida.writeUTF("[ERROR]: Formato incorrecto. Usa: @nombre mensaje");
+    private void mostrarUsuariosYEnviarMensaje() throws IOException {
+        StringBuilder usuarios = new StringBuilder();
+        int contador = 0;
+        for (String usuario : ServidorMulti.clientes.keySet()) {
+            if (!usuario.equals(nombreCliente) && !usuario.startsWith("invitado_")) {
+                if (contador > 0) usuarios.append(", ");
+                usuarios.append(usuario);
+                contador++;
+            }
+        }
+        
+        if (contador == 0) {
+            salida.writeUTF("[SISTEMA]: No hay usuarios online.");
             return;
         }
         
-        String destino = partes[0].substring(1);
+        salida.writeUTF("[USUARIOS ONLINE]: " + usuarios.toString());
+        salida.writeUTF("[SISTEMA]: Escribe: usuario mensaje");
+        
+        String input = entrada.readUTF().trim();
+        String[] partes = input.split(" ", 2);
+        
+        if (partes.length < 2) {
+            salida.writeUTF("[ERROR]: Formato incorrecto. Usa: usuario mensaje");
+            return;
+        }
+        
+        String destino = partes[0];
         String textoMensaje = partes[1];
         
         if (!ServidorMulti.usuarios.containsKey(destino)) {
@@ -138,14 +156,37 @@ public class UnCliente implements Runnable {
         }
     }
     
-    private void bloquearUsuarioCmd(String usuarioABloquear) throws IOException {
+    private void mostrarUsuariosYBloquear() throws IOException {
         if (!autenticado) {
             salida.writeUTF("[ERROR]: Debes estar autenticado para bloquear usuarios.");
             return;
         }
         
+        java.util.List<String> bloqueados = ServidorMulti.obtenerBloqueados(nombreCliente);
+        StringBuilder usuarios = new StringBuilder();
+        int contador = 0;
+        
+        for (String usuario : ServidorMulti.usuarios.keySet()) {
+            if (!usuario.equals(nombreCliente) && !bloqueados.contains(usuario)) {
+                if (contador > 0) usuarios.append(", ");
+                String estado = ServidorMulti.clientes.containsKey(usuario) ? "[ON]" : "[OFF]";
+                usuarios.append(usuario).append(estado);
+                contador++;
+            }
+        }
+        
+        if (contador == 0) {
+            salida.writeUTF("[SISTEMA]: No hay usuarios disponibles para bloquear.");
+            return;
+        }
+        
+        salida.writeUTF("[USUARIOS]: " + usuarios.toString());
+        salida.writeUTF("[SISTEMA]: Escribe el nombre del usuario:");
+        
+        String usuarioABloquear = entrada.readUTF().trim();
+        
         if (usuarioABloquear.isEmpty()) {
-            salida.writeUTF("[ERROR]: Debes especificar un usuario. Usa: bloquear <nombre_usuario>");
+            salida.writeUTF("[SISTEMA]: Operación cancelada.");
             return;
         }
         
@@ -172,14 +213,33 @@ public class UnCliente implements Runnable {
         }
     }
     
-    private void desbloquearUsuarioCmd(String usuarioADesbloquear) throws IOException {
+    private void mostrarBloqueadosYDesbloquear() throws IOException {
         if (!autenticado) {
             salida.writeUTF("[ERROR]: Debes estar autenticado para desbloquear usuarios.");
             return;
         }
         
+        java.util.List<String> bloqueados = ServidorMulti.obtenerBloqueados(nombreCliente);
+        
+        if (bloqueados.isEmpty()) {
+            salida.writeUTF("[SISTEMA]: No tienes usuarios bloqueados.");
+            return;
+        }
+        
+        StringBuilder usuarios = new StringBuilder();
+        for (int i = 0; i < bloqueados.size(); i++) {
+            if (i > 0) usuarios.append(", ");
+            String estado = ServidorMulti.clientes.containsKey(bloqueados.get(i)) ? "[ON]" : "[OFF]";
+            usuarios.append(bloqueados.get(i)).append(estado);
+        }
+        
+        salida.writeUTF("[BLOQUEADOS]: " + usuarios.toString());
+        salida.writeUTF("[SISTEMA]: Escribe el nombre del usuario:");
+        
+        String usuarioADesbloquear = entrada.readUTF().trim();
+        
         if (usuarioADesbloquear.isEmpty()) {
-            salida.writeUTF("[ERROR]: Debes especificar un usuario. Usa: desbloquear <nombre_usuario>");
+            salida.writeUTF("[SISTEMA]: Operación cancelada.");
             return;
         }
         
@@ -225,9 +285,9 @@ public class UnCliente implements Runnable {
         salida.writeUTF("registrar - Crear una nueva cuenta");
         salida.writeUTF("login - Iniciar sesión");
         salida.writeUTF("logout - Cerrar sesión");
-        salida.writeUTF("@<usuario> <mensaje> - Enviar mensaje privado");
-        salida.writeUTF("bloquear <usuario> - Bloquear a un usuario");
-        salida.writeUTF("desbloquear <usuario> - Desbloquear a un usuario");
+        salida.writeUTF("@ o privado - Enviar mensaje privado (muestra usuarios)");
+        salida.writeUTF("bloquear - Bloquear usuario (muestra lista)");
+        salida.writeUTF("desbloquear - Desbloquear usuario (muestra lista)");
         salida.writeUTF("misBloqueados - Ver lista de usuarios bloqueados");
         salida.writeUTF("help - Mostrar esta ayuda");
     }
