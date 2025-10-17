@@ -266,7 +266,7 @@ public class UnCliente implements Runnable {
             salida.writeUTF("[ERROR]: Debes estar autenticado para ver tu lista de bloqueados.");
             return;
         }
-        
+        //
         java.util.List<String> bloqueados = ServidorMulti.obtenerBloqueados(nombreCliente);
         
         if (bloqueados.isEmpty()) {
