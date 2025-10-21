@@ -9,6 +9,8 @@ import java.sql.*;
 public class ServidorMulti {
     static java.util.HashMap<String, UnCliente> clientes = new java.util.HashMap<>();
     static java.util.HashMap<String, String> usuarios = new java.util.HashMap<>();
+    static java.util.HashMap<String, PartidaGato> partidasActivas = new java.util.HashMap<>();
+    static java.util.HashMap<String, String> invitacionesPendientes = new java.util.HashMap<>();
     static final String DB_URL = "jdbc:sqlite:chat.db";
     static BaseDatos bd;
     
@@ -23,7 +25,9 @@ public class ServidorMulti {
             System.out.println("Servidor iniciado en el puerto " + puerto);
             System.out.println("Sistema de autenticación activado: 3 mensajes gratuitos");
             System.out.println("Sistema de bloqueo activado");
+            System.out.println("Sistema de juego Gato activado");
             System.out.println("Usuarios cargados: " + usuarios.size());
+              System.out.println("Sistema de juego Gato activado");
             
             while (true) {
                 Socket socket = servidorSocket.accept();
@@ -56,10 +60,10 @@ public class ServidorMulti {
     
     public static boolean bloquearUsuario(String usuarioActual, String usuarioABloquear) {
         if (usuarioActual.equals(usuarioABloquear)) {
-            return false; // No puedes bloquearte a ti mismo
+            return false;
         }
         if (!usuarios.containsKey(usuarioABloquear)) {
-            return false; // Usuario a bloquear no existe
+            return false;
         }
         return bd.bloquearUsuario(usuarioActual, usuarioABloquear);
     }
