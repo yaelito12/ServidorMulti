@@ -10,7 +10,6 @@ public class UnCliente implements Runnable {
     private String nombreCliente;
     private boolean autenticado;
     private int mensajesEnviados;
-    private PartidaGato partidaActual;
 
     public UnCliente(Socket socket) throws IOException {
         this.socket = socket;
@@ -19,7 +18,6 @@ public class UnCliente implements Runnable {
         this.nombreCliente = null;
         this.autenticado = false;
         this.mensajesEnviados = 0;
-        this.partidaActual = null;
     }
 
     @Override
@@ -61,10 +59,6 @@ public class UnCliente implements Runnable {
                 } else if (mensaje.equalsIgnoreCase("misBloqueados") || mensaje.equalsIgnoreCase("mis bloqueados")) {
                     mostrarMisBloqueados();
                     continue;
-                } else if (mensaje.equalsIgnoreCase("gato") || mensaje.equalsIgnoreCase("jugar")) {
-                    proponerJuegoGato();
-                    continue;
-               
                 }
                 
                 if (!autenticado && mensajesEnviados >= 3) {
@@ -95,11 +89,6 @@ public class UnCliente implements Runnable {
         } catch (IOException ex) {
             System.out.println(nombreCliente + " se desconectó.");
         } finally {
-            // Si el jugador está en una partida, pierde automáticamente
-            if (partidaActual != null) {
-                ServidorMulti.finalizarPartidaPorDesconexion(nombreCliente);
-            }
-            
             if (nombreCliente != null) {
                 ServidorMulti.clientes.remove(nombreCliente);
                 notificarATodos(nombreCliente + " se ha desconectado.", this);
@@ -112,67 +101,6 @@ public class UnCliente implements Runnable {
         }
     }
     
-    private void proponerJuegoGato() throws IOException {
-        if (!autenticado) {
-            salida.writeUTF("[ERROR]: Debes estar autenticado para jugar al gato.");
-            return;
-        }
-        
-        if (partidaActual != null) {
-            salida.writeUTF("[ERROR]: Ya estás en una partida de gato.");
-            salida.writeUTF("[SISTEMA]: Escribe un número (1-9) para jugar tu turno.");
-            return;
-        }
-        
-        StringBuilder usuarios = new StringBuilder();
-        int contador = 0;
-        
-        for (String usuario : ServidorMulti.clientes.keySet()) {
-            if (!usuario.equals(nombreCliente) && !usuario.startsWith("invitado_")) {
-                UnCliente cliente = ServidorMulti.clientes.get(usuario);
-                if (cliente.autenticado && cliente.partidaActual == null) {
-                    if (contador > 0) usuarios.append(", ");
-                    usuarios.append(usuario);
-                    contador++;
-                } else if (cliente.partidaActual != null && 
-                          !ServidorMulti.tienePartidaCon(nombreCliente, usuario)) {
-                    if (contador > 0) usuarios.append(", ");
-                    usuarios.append(usuario).append("[JUGANDO]");
-                    contador++;
-                }
-            }
-        }
-        
-        if (contador == 0) {
-            salida.writeUTF("[SISTEMA]: No hay usuarios disponibles para jugar.");
-            return;
-        }
-        
-        salida.writeUTF("[USUARIOS DISPONIBLES]: " + usuarios.toString());
-        salida.writeUTF("[SISTEMA]: Escribe el nombre del usuario con quien quieres jugar:");
-        
-        String oponente = entrada.readUTF().trim();
-        
-        if (oponente.isEmpty()) {
-            salida.writeUTF("[SISTEMA]: Operación cancelada.");
-            return;
-        }
-        
-        if (oponente.equals(nombreCliente)) {
-            salida.writeUTF("[ERROR]: No puedes jugar contra ti mismo.");
-            return;
-        }
-        
-        UnCliente clienteOponente = ServidorMulti.clientes.get(oponente);
-        
-        if (clienteOponente == null || !clienteOponente.autenticado) {
-            salida.writeUTF("[ERROR]: El usuario '" + oponente + "' no está disponible.");
-            return;
-        }
-       
-    }
-    
-  
     private void mostrarUsuariosYEnviarMensaje() throws IOException {
         StringBuilder usuarios = new StringBuilder();
         int contador = 0;
@@ -338,7 +266,7 @@ public class UnCliente implements Runnable {
             salida.writeUTF("[ERROR]: Debes estar autenticado para ver tu lista de bloqueados.");
             return;
         }
-        
+        //
         java.util.List<String> bloqueados = ServidorMulti.obtenerBloqueados(nombreCliente);
         
         if (bloqueados.isEmpty()) {
@@ -361,8 +289,6 @@ public class UnCliente implements Runnable {
         salida.writeUTF("bloquear - Bloquear usuario (muestra lista)");
         salida.writeUTF("desbloquear - Desbloquear usuario (muestra lista)");
         salida.writeUTF("misBloqueados - Ver lista de usuarios bloqueados");
-        salida.writeUTF("gato o jugar - Proponer juego del gato");
-        salida.writeUTF("partidas - Ver tus partidas activas");
         salida.writeUTF("help - Mostrar esta ayuda");
     }
     
@@ -467,13 +393,5 @@ public class UnCliente implements Runnable {
                 }
             }
         }
-    }
-    
-    public boolean estaEnPartida() {
-        return partidaActual != null;
-    }
-    
-    public PartidaGato getPartidaActual() {
-        return partidaActual;
     }
 }
