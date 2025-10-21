@@ -98,21 +98,21 @@ public class PartidaGato {
     }
     
     private boolean verificarGanador(char simbolo) {
-        // Verificar filas
+      
         for (int i = 0; i < 3; i++) {
             if (tablero[i][0] == simbolo && tablero[i][1] == simbolo && tablero[i][2] == simbolo) {
                 return true;
             }
         }
         
-        // Verificar columnas
+       
         for (int j = 0; j < 3; j++) {
             if (tablero[0][j] == simbolo && tablero[1][j] == simbolo && tablero[2][j] == simbolo) {
                 return true;
             }
         }
         
-      
+        
         if (tablero[0][0] == simbolo && tablero[1][1] == simbolo && tablero[2][2] == simbolo) {
             return true;
         }
@@ -134,6 +134,14 @@ public class PartidaGato {
         return true;
     }
     
-  
+    public void abandonar(String jugador) {
+        terminado = true;
+        ganador = getOponente(jugador);
+    }
+    
+    public char getSimbolo(String jugador) {
+        if (jugador.equals(jugador1)) return simboloJ1;
+        if (jugador.equals(jugador2)) return simboloJ2;
+        return ' ';
     }
 }
