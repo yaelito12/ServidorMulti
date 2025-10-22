@@ -27,7 +27,6 @@ public class ServidorMulti {
             System.out.println("Sistema de bloqueo activado");
             System.out.println("Sistema de juego Gato activado");
             System.out.println("Usuarios cargados: " + usuarios.size());
-              System.out.println("Sistema de juego Gato activado");
             
             while (true) {
                 Socket socket = servidorSocket.accept();
@@ -87,4 +86,21 @@ public class ServidorMulti {
         usuarios = bd.cargarTodosLosUsuarios();
         System.out.println("Usuarios cargados de la BD: " + usuarios.size());
     }
+    
+   
+    public static synchronized boolean enviarInvitacionGato(String invitador, String invitado) {
+        String claveInvitacion = invitado + "_invitacion";
+        if (invitacionesPendientes.containsKey(claveInvitacion)) {
+            return false; 
+        }
+        invitacionesPendientes.put(claveInvitacion, invitador);
+        return true;
+    }
+    
+    public static synchronized String obtenerInvitador(String invitado) {
+        String claveInvitacion = invitado + "_invitacion";
+        return invitacionesPendientes.get(claveInvitacion);
+    }
+    
+   
 }
