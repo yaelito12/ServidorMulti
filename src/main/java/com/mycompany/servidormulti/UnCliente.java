@@ -472,8 +472,88 @@ public class UnCliente implements Runnable {
         }
     }
     
-   
+    private void realizarMovimientoGato(String comando) throws IOException {
+        if (!autenticado) {
+            salida.writeUTF("[ERROR]: Debes estar autenticado.");
+            return;
+        }
+        
+        String[] partes = comando.split("\\s+");
+        if (partes.length != 3) {
+            salida.writeUTF("[ERROR]: Formato incorrecto. Usa: jugar fila columna (ej: jugar 1 2)");
+            return;
+        }
+        
+        int fila, columna;
+        try {
+            fila = Integer.parseInt(partes[1]) - 1;
+            columna = Integer.parseInt(partes[2]) - 1;
+        } catch (NumberFormatException e) {
+            salida.writeUTF("[ERROR]: Fila y columna deben ser números del 1 al 3.");
+            return;
+        }
+        
+        java.util.List<PartidaGato> partidas = ServidorMulti.obtenerPartidasDeJugador(nombreCliente);
+        PartidaGato partidaActual = null;
+        
+        for (PartidaGato p : partidas) {
+            if (!p.isTerminado() && p.getTurnoActual().equals(nombreCliente)) {
+                partidaActual = p;
+                break;
+            }
+        }
+        
+        if (partidaActual == null) {
+            salida.writeUTF("[ERROR]: No es tu turno en ninguna partida o no tienes partidas activas.");
+            return;
+        }
+        
+        if (partidaActual.realizarMovimiento(nombreCliente, fila, columna)) {
+            String oponente = partidaActual.getOponente(nombreCliente);
+            UnCliente clienteOponente = ServidorMulti.clientes.get(oponente);
+            
+            salida.writeUTF("[GATO]: Movimiento realizado.");
+            salida.writeUTF(partidaActual.obtenerTableroTexto());
+            
+            if (clienteOponente != null) {
+                clienteOponente.salida.writeUTF("[GATO]: " + nombreCliente + " realizó un movimiento.");
+                clienteOponente.salida.writeUTF(partidaActual.obtenerTableroTexto());
+            }
+            
+            if (partidaActual.isTerminado()) {
+                String ganador = partidaActual.getGanador();
+                
+                if (ganador.equals("EMPATE")) {
+                    salida.writeUTF("[GATO]: ¡EMPATE! La partida terminó en empate.");
+                    if (clienteOponente != null) {
+                        clienteOponente.salida.writeUTF("[GATO]: ¡EMPATE! La partida terminó en empate.");
+                    }
+                } else if (ganador.equals(nombreCliente)) {
+                    salida.writeUTF("[GATO]: ¡FELICIDADES! ¡HAS GANADO!");
+                    if (clienteOponente != null) {
+                        clienteOponente.salida.writeUTF("[GATO]: Has perdido. " + ganador + " ganó la partida.");
+                    }
+                } else {
+                    salida.writeUTF("[GATO]: Has perdido. " + ganador + " ganó la partida.");
+                    if (clienteOponente != null) {
+                        clienteOponente.salida.writeUTF("[GATO]: ¡FELICIDADES! ¡HAS GANADO!");
+                    }
+                }
+                
+                ServidorMulti.finalizarPartida(partidaActual.getJugador1(), partidaActual.getJugador2());
+            } else {
+                String turno = partidaActual.getTurnoActual();
+                salida.writeUTF("[GATO]: Turno de: " + turno);
+                if (clienteOponente != null) {
+                    clienteOponente.salida.writeUTF("[GATO]: Turno de: " + turno);
+                }
+            }
+        } else {
+            salida.writeUTF("[ERROR]: Movimiento inválido. La casilla debe estar vacía y en el rango 1-3.");
+        }
+    }
     
+   
     private void mostrarAyuda() throws IOException {
         salida.writeUTF("=== COMANDOS DISPONIBLES ===");
         salida.writeUTF("registrar - Crear una nueva cuenta");
