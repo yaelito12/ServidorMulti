@@ -87,7 +87,6 @@ public class ServidorMulti {
         System.out.println("Usuarios cargados de la BD: " + usuarios.size());
     }
     
-   
     public static synchronized boolean enviarInvitacionGato(String invitador, String invitado) {
         String claveInvitacion = invitado + "_invitacion";
         if (invitacionesPendientes.containsKey(claveInvitacion)) {
@@ -125,5 +124,29 @@ public class ServidorMulti {
         return true;
     }
     
+    public static synchronized PartidaGato obtenerPartida(String jugador1, String jugador2) {
+        String clavePartida = jugador1 + "_" + jugador2;
+        return partidasActivas.get(clavePartida);
+    }
     
+    public static synchronized void finalizarPartida(String jugador1, String jugador2) {
+        String clavePartida1 = jugador1 + "_" + jugador2;
+        String clavePartida2 = jugador2 + "_" + jugador1;
+        
+        partidasActivas.remove(clavePartida1);
+        partidasActivas.remove(clavePartida2);
+        
+        System.out.println("Partida finalizada entre " + jugador1 + " y " + jugador2);
+    }
+    
+    public static synchronized boolean tienePartidaActiva(String jugador) {
+        for (PartidaGato partida : partidasActivas.values()) {
+            if (partida.esJugadorEnPartida(jugador) && !partida.isTerminado()) {
+                return true;
+            }
+        }
+        return false;
+    }
+    
+
 }
