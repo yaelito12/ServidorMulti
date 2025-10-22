@@ -102,5 +102,28 @@ public class ServidorMulti {
         return invitacionesPendientes.get(claveInvitacion);
     }
     
-   
+    public static synchronized void eliminarInvitacion(String invitado) {
+        String claveInvitacion = invitado + "_invitacion";
+        invitacionesPendientes.remove(claveInvitacion);
+    }
+    
+    public static synchronized boolean crearPartida(String jugador1, String jugador2) {
+        String clavePartida1 = jugador1 + "_" + jugador2;
+        String clavePartida2 = jugador2 + "_" + jugador1;
+        
+        if (partidasActivas.containsKey(clavePartida1) || partidasActivas.containsKey(clavePartida2)) {
+            return false; 
+        }
+        
+        boolean empiezaJ1 = Math.random() < 0.5;
+        PartidaGato partida = new PartidaGato(jugador1, jugador2, empiezaJ1);
+        
+        partidasActivas.put(clavePartida1, partida);
+        partidasActivas.put(clavePartida2, partida);
+        
+        System.out.println("Partida creada entre " + jugador1 + " y " + jugador2);
+        return true;
+    }
+    
+    
 }
