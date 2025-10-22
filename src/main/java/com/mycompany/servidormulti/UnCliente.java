@@ -382,6 +382,97 @@ public class UnCliente implements Runnable {
         }
     }
     
+    private void aceptarInvitacionGato() throws IOException {
+        if (!autenticado) {
+            salida.writeUTF("[ERROR]: Debes estar autenticado.");
+            return;
+        }
+        
+        String invitador = ServidorMulti.obtenerInvitador(nombreCliente);
+        if (invitador == null) {
+            salida.writeUTF("[ERROR]: No tienes invitaciones pendientes.");
+            return;
+        }
+        
+        ServidorMulti.eliminarInvitacion(nombreCliente);
+        
+        if (!ServidorMulti.clientes.containsKey(invitador)) {
+            salida.writeUTF("[ERROR]: El invitador ya no está conectado.");
+            return;
+        }
+        
+        if (ServidorMulti.crearPartida(invitador, nombreCliente)) {
+            PartidaGato partida = ServidorMulti.obtenerPartida(invitador, nombreCliente);
+            
+            String primerJugador = partida.getTurnoActual();
+            char simboloInvitador = partida.getSimbolo(invitador);
+            char simboloInvitado = partida.getSimbolo(nombreCliente);
+            
+            UnCliente clienteInvitador = ServidorMulti.clientes.get(invitador);
+            
+            salida.writeUTF("[GATO]: ¡Partida iniciada contra " + invitador + "!");
+            salida.writeUTF("[GATO]: Tú eres '" + simboloInvitado + "'");
+            salida.writeUTF("[GATO]: Empieza: " + primerJugador);
+            salida.writeUTF(partida.obtenerTableroTexto());
+            salida.writeUTF("[GATO]: Para jugar: jugar fila columna (ej: jugar 1 2)");
+            
+            if (clienteInvitador != null) {
+                clienteInvitador.salida.writeUTF("[GATO]: " + nombreCliente + " aceptó tu invitación!");
+                clienteInvitador.salida.writeUTF("[GATO]: Tú eres '" + simboloInvitador + "'");
+                clienteInvitador.salida.writeUTF("[GATO]: Empieza: " + primerJugador);
+                clienteInvitador.salida.writeUTF(partida.obtenerTableroTexto());
+                clienteInvitador.salida.writeUTF("[GATO]: Para jugar: jugar fila columna (ej: jugar 1 2)");
+            }
+        } else {
+            salida.writeUTF("[ERROR]: No se pudo crear la partida.");
+        }
+    }
+    
+    private void rechazarInvitacionGato() throws IOException {
+        if (!autenticado) {
+            salida.writeUTF("[ERROR]: Debes estar autenticado.");
+            return;
+        }
+        
+        String invitador = ServidorMulti.obtenerInvitador(nombreCliente);
+        if (invitador == null) {
+            salida.writeUTF("[ERROR]: No tienes invitaciones pendientes.");
+            return;
+        }
+        
+        ServidorMulti.eliminarInvitacion(nombreCliente);
+        salida.writeUTF("[SISTEMA]: Invitación rechazada.");
+        
+        UnCliente clienteInvitador = ServidorMulti.clientes.get(invitador);
+        if (clienteInvitador != null) {
+            clienteInvitador.salida.writeUTF("[GATO]: " + nombreCliente + " rechazó tu invitación.");
+        }
+    }
+    
+    private void mostrarPartidasActivas() throws IOException {
+        if (!autenticado) {
+            salida.writeUTF("[ERROR]: Debes estar autenticado.");
+            return;
+        }
+        
+        java.util.List<PartidaGato> partidas = ServidorMulti.obtenerPartidasDeJugador(nombreCliente);
+        
+        if (partidas.isEmpty()) {
+            salida.writeUTF("[SISTEMA]: No tienes partidas activas.");
+        } else {
+            salida.writeUTF("[SISTEMA]: === TUS PARTIDAS ===");
+            for (int i = 0; i < partidas.size(); i++) {
+                PartidaGato p = partidas.get(i);
+                String oponente = p.getOponente(nombreCliente);
+                String estado = p.isTerminado() ? "TERMINADA" : "EN CURSO";
+                String turno = p.isTerminado() ? "" : " - Turno de: " + p.getTurnoActual();
+                salida.writeUTF((i + 1) + ". vs " + oponente + " [" + estado + "]" + turno);
+                salida.writeUTF(p.obtenerTableroTexto());
+            }
+        }
+    }
+    
+   
     
     private void mostrarAyuda() throws IOException {
         salida.writeUTF("=== COMANDOS DISPONIBLES ===");
