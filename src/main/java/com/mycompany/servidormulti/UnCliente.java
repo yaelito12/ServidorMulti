@@ -59,6 +59,24 @@ public class UnCliente implements Runnable {
                 } else if (mensaje.equalsIgnoreCase("misBloqueados") || mensaje.equalsIgnoreCase("mis bloqueados")) {
                     mostrarMisBloqueados();
                     continue;
+                } else if (mensaje.equalsIgnoreCase("gato") || mensaje.equalsIgnoreCase("jugar")) {
+                    invitarAJugarGato();
+                    continue;
+                } else if (mensaje.equalsIgnoreCase("aceptar")) {
+                    aceptarInvitacionGato();
+                    continue;
+                } else if (mensaje.equalsIgnoreCase("rechazar")) {
+                    rechazarInvitacionGato();
+                    continue;
+                } else if (mensaje.equalsIgnoreCase("partidas")) {
+                    mostrarPartidasActivas();
+                    continue;
+                } else if (mensaje.toLowerCase().startsWith("jugar ")) {
+                    realizarMovimientoGato(mensaje);
+                    continue;
+                } else if (mensaje.equalsIgnoreCase("rendirse")) {
+                    rendirseEnPartida();
+                    continue;
                 }
                 
                 if (!autenticado && mensajesEnviados >= 3) {
@@ -89,15 +107,39 @@ public class UnCliente implements Runnable {
         } catch (IOException ex) {
             System.out.println(nombreCliente + " se desconectó.");
         } finally {
-            if (nombreCliente != null) {
-                ServidorMulti.clientes.remove(nombreCliente);
-                notificarATodos(nombreCliente + " se ha desconectado.", this);
+            manejarDesconexion();
+        }
+    }
+    
+    private void manejarDesconexion() {
+        if (nombreCliente != null) {
+          
+            java.util.List<PartidaGato> partidas = ServidorMulti.obtenerPartidasDeJugador(nombreCliente);
+            for (PartidaGato partida : partidas) {
+                if (!partida.isTerminado()) {
+                    partida.abandonar(nombreCliente);
+                    String oponente = partida.getOponente(nombreCliente);
+                    UnCliente clienteOponente = ServidorMulti.clientes.get(oponente);
+                    
+                    if (clienteOponente != null) {
+                        try {
+                            clienteOponente.salida.writeUTF("[GATO]: " + nombreCliente + " se desconectó. ¡Has ganado la partida!");
+                        } catch (IOException e) {
+                            e.printStackTrace();
+                        }
+                    }
+                    ServidorMulti.finalizarPartida(partida.getJugador1(), partida.getJugador2());
+                }
             }
-            try {
-                socket.close();
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
+            
+            ServidorMulti.clientes.remove(nombreCliente);
+            notificarATodos(nombreCliente + " se ha desconectado.", this);
+        }
+        
+        try {
+            socket.close();
+        } catch (IOException e) {
+            e.printStackTrace();
         }
     }
     
@@ -266,7 +308,7 @@ public class UnCliente implements Runnable {
             salida.writeUTF("[ERROR]: Debes estar autenticado para ver tu lista de bloqueados.");
             return;
         }
-        //
+        
         java.util.List<String> bloqueados = ServidorMulti.obtenerBloqueados(nombreCliente);
         
         if (bloqueados.isEmpty()) {
@@ -280,6 +322,7 @@ public class UnCliente implements Runnable {
         }
     }
     
+  
     private void mostrarAyuda() throws IOException {
         salida.writeUTF("=== COMANDOS DISPONIBLES ===");
         salida.writeUTF("registrar - Crear una nueva cuenta");
@@ -289,6 +332,13 @@ public class UnCliente implements Runnable {
         salida.writeUTF("bloquear - Bloquear usuario (muestra lista)");
         salida.writeUTF("desbloquear - Desbloquear usuario (muestra lista)");
         salida.writeUTF("misBloqueados - Ver lista de usuarios bloqueados");
+        salida.writeUTF("--- JUEGO DEL GATO ---");
+        salida.writeUTF("gato o jugar - Invitar a alguien a jugar");
+        salida.writeUTF("aceptar - Aceptar invitación de juego");
+        salida.writeUTF("rechazar - Rechazar invitación de juego");
+        salida.writeUTF("partidas - Ver tus partidas activas");
+        salida.writeUTF("jugar fila columna - Realizar movimiento (ej: jugar 1 2)");
+        salida.writeUTF("rendirse - Abandonar partida actual");
         salida.writeUTF("help - Mostrar esta ayuda");
     }
     
