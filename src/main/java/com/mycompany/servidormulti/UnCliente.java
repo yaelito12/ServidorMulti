@@ -113,7 +113,7 @@ public class UnCliente implements Runnable {
     
     private void manejarDesconexion() {
         if (nombreCliente != null) {
-          
+            // Manejar partidas activas
             java.util.List<PartidaGato> partidas = ServidorMulti.obtenerPartidasDeJugador(nombreCliente);
             for (PartidaGato partida : partidas) {
                 if (!partida.isTerminado()) {
@@ -322,7 +322,67 @@ public class UnCliente implements Runnable {
         }
     }
     
-  
+    private void invitarAJugarGato() throws IOException {
+        if (!autenticado) {
+            salida.writeUTF("[ERROR]: Debes estar autenticado para jugar.");
+            return;
+        }
+        
+        StringBuilder usuarios = new StringBuilder();
+        int contador = 0;
+        
+        for (String usuario : ServidorMulti.clientes.keySet()) {
+            if (!usuario.equals(nombreCliente) && !usuario.startsWith("invitado_")) {
+                if (contador > 0) usuarios.append(", ");
+                usuarios.append(usuario);
+                contador++;
+            }
+        }
+        
+        if (contador == 0) {
+            salida.writeUTF("[SISTEMA]: No hay usuarios disponibles para jugar.");
+            return;
+        }
+        
+        salida.writeUTF("[USUARIOS ONLINE]: " + usuarios.toString());
+        salida.writeUTF("[SISTEMA]: Escribe el nombre del usuario:");
+        
+        String invitado = entrada.readUTF().trim();
+        
+        if (invitado.isEmpty()) {
+            salida.writeUTF("[SISTEMA]: Operación cancelada.");
+            return;
+        }
+        
+        if (invitado.equals(nombreCliente)) {
+            salida.writeUTF("[ERROR]: No puedes jugar contigo mismo.");
+            return;
+        }
+        
+        if (!ServidorMulti.clientes.containsKey(invitado)) {
+            salida.writeUTF("[ERROR]: El usuario no está conectado.");
+            return;
+        }
+        
+        if (ServidorMulti.obtenerPartida(nombreCliente, invitado) != null) {
+            salida.writeUTF("[ERROR]: Ya tienes una partida activa con " + invitado + ".");
+            return;
+        }
+        
+        if (!ServidorMulti.enviarInvitacionGato(nombreCliente, invitado)) {
+            salida.writeUTF("[ERROR]: " + invitado + " ya tiene una invitación pendiente.");
+            return;
+        }
+        
+        UnCliente clienteInvitado = ServidorMulti.clientes.get(invitado);
+        if (clienteInvitado != null) {
+            clienteInvitado.salida.writeUTF("[GATO]: " + nombreCliente + " te invita a jugar. Escribe 'aceptar' o 'rechazar'.");
+            salida.writeUTF("[SISTEMA]: Invitación enviada a " + invitado + ".");
+            System.out.println(nombreCliente + " invitó a jugar a " + invitado);
+        }
+    }
+    
+    
     private void mostrarAyuda() throws IOException {
         salida.writeUTF("=== COMANDOS DISPONIBLES ===");
         salida.writeUTF("registrar - Crear una nueva cuenta");
