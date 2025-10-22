@@ -79,6 +79,12 @@ public class UnCliente implements Runnable {
                     continue;
                 }
                 
+                // Detectar si es un movimiento de gato (solo números)
+                if (mensaje.matches("^[1-3]\\s+[1-3]$")) {
+                    realizarMovimientoGato("jugar " + mensaje);
+                    continue;
+                }
+                
                 if (!autenticado && mensajesEnviados >= 3) {
                     salida.writeUTF("[SISTEMA]: Has alcanzado el límite de 3 mensajes.");
                     salida.writeUTF("[SISTEMA]: Escribe 'registrar' para crear una cuenta o 'login' para iniciar sesión.");
@@ -553,7 +559,41 @@ public class UnCliente implements Runnable {
         }
     }
     
-   
+    private void rendirseEnPartida() throws IOException {
+        if (!autenticado) {
+            salida.writeUTF("[ERROR]: Debes estar autenticado.");
+            return;
+        }
+        
+        java.util.List<PartidaGato> partidas = ServidorMulti.obtenerPartidasDeJugador(nombreCliente);
+        PartidaGato partidaActual = null;
+        
+        for (PartidaGato p : partidas) {
+            if (!p.isTerminado()) {
+                partidaActual = p;
+                break;
+            }
+        }
+        
+        if (partidaActual == null) {
+            salida.writeUTF("[ERROR]: No tienes partidas activas.");
+            return;
+        }
+        
+        String oponente = partidaActual.getOponente(nombreCliente);
+        partidaActual.abandonar(nombreCliente);
+        
+        salida.writeUTF("[GATO]: Te has rendido. " + oponente + " gana la partida.");
+        
+        UnCliente clienteOponente = ServidorMulti.clientes.get(oponente);
+        if (clienteOponente != null) {
+            clienteOponente.salida.writeUTF("[GATO]: " + nombreCliente + " se rindió. ¡Has ganado!");
+        }
+        
+        ServidorMulti.finalizarPartida(partidaActual.getJugador1(), partidaActual.getJugador2());
+        System.out.println(nombreCliente + " se rindió en la partida contra " + oponente);
+    }
+    
     private void mostrarAyuda() throws IOException {
         salida.writeUTF("=== COMANDOS DISPONIBLES ===");
         salida.writeUTF("registrar - Crear una nueva cuenta");
