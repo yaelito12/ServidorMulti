@@ -148,5 +148,16 @@ public class ServidorMulti {
         return false;
     }
     
-
+    public static synchronized java.util.List<PartidaGato> obtenerPartidasDeJugador(String jugador) {
+        java.util.List<PartidaGato> partidas = new java.util.ArrayList<>();
+        java.util.Set<PartidaGato> partidasVistas = new java.util.HashSet<>();
+        
+        for (PartidaGato partida : partidasActivas.values()) {
+            if (partida.esJugadorEnPartida(jugador) && !partidasVistas.contains(partida)) {
+                partidas.add(partida);
+                partidasVistas.add(partida);
+            }
+        }
+        return partidas;
+    }
 }
