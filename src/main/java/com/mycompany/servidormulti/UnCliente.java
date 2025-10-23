@@ -334,13 +334,27 @@ public class UnCliente implements Runnable {
             return;
         }
         
+     
+        if (ServidorMulti.tienePartidaActiva(nombreCliente)) {
+            salida.writeUTF("[ERROR]: Ya tienes una partida activa. Solo puedes jugar una partida a la vez.");
+            salida.writeUTF("[INFO]: Usa 'partidas' para ver tu partida actual o 'rendirse' para abandonarla.");
+            return;
+        }
+        
+     
+        mostrarAyudaGato();
+        salida.writeUTF("");
+        
         StringBuilder usuarios = new StringBuilder();
         int contador = 0;
         
         for (String usuario : ServidorMulti.clientes.keySet()) {
             if (!usuario.equals(nombreCliente) && !usuario.startsWith("invitado_")) {
+            
+                boolean tienePartida = ServidorMulti.tienePartidaActiva(usuario);
                 if (contador > 0) usuarios.append(", ");
                 usuarios.append(usuario);
+                if (tienePartida) usuarios.append("[OCUPADO]");
                 contador++;
             }
         }
@@ -370,6 +384,12 @@ public class UnCliente implements Runnable {
             return;
         }
         
+      
+        if (ServidorMulti.tienePartidaActiva(invitado)) {
+            salida.writeUTF("[ERROR]: " + invitado + " ya está jugando una partida.");
+            return;
+        }
+        
         if (ServidorMulti.obtenerPartida(nombreCliente, invitado) != null) {
             salida.writeUTF("[ERROR]: Ya tienes una partida activa con " + invitado + ".");
             return;
@@ -391,6 +411,12 @@ public class UnCliente implements Runnable {
     private void aceptarInvitacionGato() throws IOException {
         if (!autenticado) {
             salida.writeUTF("[ERROR]: Debes estar autenticado.");
+            return;
+        }
+        
+      
+        if (ServidorMulti.tienePartidaActiva(nombreCliente)) {
+            salida.writeUTF("[ERROR]: Ya tienes una partida activa. Solo puedes jugar una partida a la vez.");
             return;
         }
         
@@ -416,18 +442,51 @@ public class UnCliente implements Runnable {
             
             UnCliente clienteInvitador = ServidorMulti.clientes.get(invitador);
             
+            
             salida.writeUTF("[GATO]: ¡Partida iniciada contra " + invitador + "!");
             salida.writeUTF("[GATO]: Tú eres '" + simboloInvitado + "'");
-            salida.writeUTF("[GATO]: Empieza: " + primerJugador);
+            if (primerJugador.equals(nombreCliente)) {
+                salida.writeUTF("[GATO]: ¡Es TU TURNO!");
+            } else {
+                salida.writeUTF("[GATO]: Es el turno de " + invitador);
+            }
             salida.writeUTF(partida.obtenerTableroTexto());
-            salida.writeUTF("[GATO]: Para jugar: jugar fila columna (ej: jugar 1 2)");
+            salida.writeUTF("");
+            salida.writeUTF("=== CÓMO JUGAR ===");
+            salida.writeUTF("Escribe: fila columna (ejemplo: 1 2)");
+            salida.writeUTF("O también: jugar fila columna (ejemplo: jugar 2 3)");
+            salida.writeUTF("");
+            salida.writeUTF("Coordenadas del tablero:");
+            salida.writeUTF("  Fila 1: posiciones 1 1, 1 2, 1 3 (arriba)");
+            salida.writeUTF("  Fila 2: posiciones 2 1, 2 2, 2 3 (centro)");
+            salida.writeUTF("  Fila 3: posiciones 3 1, 3 2, 3 3 (abajo)");
+            salida.writeUTF("");
+            salida.writeUTF("Comandos útiles:");
+            salida.writeUTF("  partidas - Ver estado del tablero");
+            salida.writeUTF("  rendirse - Abandonar partida");
             
             if (clienteInvitador != null) {
                 clienteInvitador.salida.writeUTF("[GATO]: " + nombreCliente + " aceptó tu invitación!");
                 clienteInvitador.salida.writeUTF("[GATO]: Tú eres '" + simboloInvitador + "'");
-                clienteInvitador.salida.writeUTF("[GATO]: Empieza: " + primerJugador);
+                if (primerJugador.equals(invitador)) {
+                    clienteInvitador.salida.writeUTF("[GATO]: ¡Es TU TURNO!");
+                } else {
+                    clienteInvitador.salida.writeUTF("[GATO]: Es el turno de " + nombreCliente);
+                }
                 clienteInvitador.salida.writeUTF(partida.obtenerTableroTexto());
-                clienteInvitador.salida.writeUTF("[GATO]: Para jugar: jugar fila columna (ej: jugar 1 2)");
+                clienteInvitador.salida.writeUTF("");
+                clienteInvitador.salida.writeUTF("=== CÓMO JUGAR ===");
+                clienteInvitador.salida.writeUTF("Escribe: fila columna (ejemplo: 1 2)");
+                clienteInvitador.salida.writeUTF("O también: jugar fila columna (ejemplo: jugar 2 3)");
+                clienteInvitador.salida.writeUTF("");
+                clienteInvitador.salida.writeUTF("Coordenadas del tablero:");
+                clienteInvitador.salida.writeUTF("  Fila 1: posiciones 1 1, 1 2, 1 3 (arriba)");
+                clienteInvitador.salida.writeUTF("  Fila 2: posiciones 2 1, 2 2, 2 3 (centro)");
+                clienteInvitador.salida.writeUTF("  Fila 3: posiciones 3 1, 3 2, 3 3 (abajo)");
+                clienteInvitador.salida.writeUTF("");
+                clienteInvitador.salida.writeUTF("Comandos útiles:");
+                clienteInvitador.salida.writeUTF("  partidas - Ver estado del tablero");
+                clienteInvitador.salida.writeUTF("  rendirse - Abandonar partida");
             }
         } else {
             salida.writeUTF("[ERROR]: No se pudo crear la partida.");
@@ -548,10 +607,13 @@ public class UnCliente implements Runnable {
                 
                 ServidorMulti.finalizarPartida(partidaActual.getJugador1(), partidaActual.getJugador2());
             } else {
-                String turno = partidaActual.getTurnoActual();
-                salida.writeUTF("[GATO]: Turno de: " + turno);
+                String turnoActual = partidaActual.getTurnoActual();
+                
+                salida.writeUTF("[GATO]: Espera el turno de " + oponente);
+                
+               
                 if (clienteOponente != null) {
-                    clienteOponente.salida.writeUTF("[GATO]: Turno de: " + turno);
+                    clienteOponente.salida.writeUTF("[GATO]: ¡Es TU TURNO!");
                 }
             }
         } else {
@@ -599,18 +661,42 @@ public class UnCliente implements Runnable {
         salida.writeUTF("registrar - Crear una nueva cuenta");
         salida.writeUTF("login - Iniciar sesión");
         salida.writeUTF("logout - Cerrar sesión");
-        salida.writeUTF("@ o privado - Enviar mensaje privado (muestra usuarios)");
-        salida.writeUTF("bloquear - Bloquear usuario (muestra lista)");
-        salida.writeUTF("desbloquear - Desbloquear usuario (muestra lista)");
-        salida.writeUTF("misBloqueados - Ver lista de usuarios bloqueados");
-        salida.writeUTF("--- JUEGO DEL GATO ---");
-        salida.writeUTF("gato o jugar - Invitar a alguien a jugar");
+        salida.writeUTF("@ o privado - Enviar mensaje privado");
+        salida.writeUTF("bloquear - Bloquear usuario");
+        salida.writeUTF("desbloquear - Desbloquear usuario");
+        salida.writeUTF("misBloqueados - Ver usuarios bloqueados");
+        salida.writeUTF("gato - Jugar al gato");
+        salida.writeUTF("help - Mostrar esta ayuda");
+    }
+    
+    private void mostrarAyudaGato() throws IOException {
+        salida.writeUTF("=== COMANDOS DEL JUEGO GATO ===");
+        salida.writeUTF("gato - Invitar a alguien a jugar");
         salida.writeUTF("aceptar - Aceptar invitación de juego");
         salida.writeUTF("rechazar - Rechazar invitación de juego");
         salida.writeUTF("partidas - Ver tus partidas activas");
-        salida.writeUTF("jugar fila columna - Realizar movimiento (ej: jugar 1 2)");
-        salida.writeUTF("rendirse - Abandonar partida actual");
-        salida.writeUTF("help - Mostrar esta ayuda");
+        salida.writeUTF("");
+        salida.writeUTF("=== DURANTE UNA PARTIDA ===");
+        salida.writeUTF("Para hacer una jugada usa:");
+        salida.writeUTF("  jugar fila columna  (ejemplo: jugar 1 2)");
+        salida.writeUTF("  O simplemente:  fila columna  (ejemplo: 2 3)");
+        salida.writeUTF("");
+        salida.writeUTF("El tablero usa coordenadas así:");
+        salida.writeUTF("     1   2   3");
+        salida.writeUTF("  1  ■ | ■ | ■    ← Fila 1");
+        salida.writeUTF("    -----------");
+        salida.writeUTF("  2  ■ | ■ | ■    ← Fila 2");
+        salida.writeUTF("    -----------");
+        salida.writeUTF("  3  ■ | ■ | ■    ← Fila 3");
+        salida.writeUTF("     ↑   ↑   ↑");
+        salida.writeUTF("     C1  C2  C3");
+        salida.writeUTF("");
+        salida.writeUTF("Ejemplos:");
+        salida.writeUTF("  '1 1' = esquina superior izquierda");
+        salida.writeUTF("  '2 2' = centro del tablero");
+        salida.writeUTF("  '3 3' = esquina inferior derecha");
+        salida.writeUTF("");
+        salida.writeUTF("rendirse - Abandonar la partida actual");
     }
     
     private void registrarUsuario() throws IOException {
