@@ -79,7 +79,7 @@ public class UnCliente implements Runnable {
                     continue;
                 }
                 
-                // Detectar si es un movimiento de gato (solo números)
+               
                 if (mensaje.matches("^[1-3]\\s+[1-3]$")) {
                     realizarMovimientoGato("jugar " + mensaje);
                     continue;
@@ -102,11 +102,33 @@ public class UnCliente implements Runnable {
                         salida.writeUTF("[SISTEMA]: Has usado tus 3 mensajes gratuitos. Escribe 'registrar' o 'login' para continuar.");
                     }
                 }
+             
+                java.util.List<PartidaGato> partidasActivas = ServidorMulti.obtenerPartidasDeJugador(nombreCliente);
+                boolean tienePartidaActiva = false;
+                String oponentePartida = null;
                 
-                String mensajeCompleto = "[" + nombreCliente + "]: " + mensaje;
-                for (UnCliente cliente : ServidorMulti.clientes.values()) {
-                    if (cliente != this) {
-                        cliente.salida.writeUTF(mensajeCompleto);
+                for (PartidaGato p : partidasActivas) {
+                    if (!p.isTerminado()) {
+                        tienePartidaActiva = true;
+                        oponentePartida = p.getOponente(nombreCliente);
+                        break;
+                    }
+                }
+                
+                if (tienePartidaActiva && oponentePartida != null) {
+                  
+                    UnCliente clienteOponente = ServidorMulti.clientes.get(oponentePartida);
+                    if (clienteOponente != null) {
+                        clienteOponente.salida.writeUTF("[CHAT-PARTIDA] " + nombreCliente + ": " + mensaje);
+                    }
+                    salida.writeUTF("[CHAT-PARTIDA] Tú: " + mensaje);
+                } else {
+                   
+                    String mensajeCompleto = "[" + nombreCliente + "]: " + mensaje;
+                    for (UnCliente cliente : ServidorMulti.clientes.values()) {
+                        if (cliente != this) {
+                            cliente.salida.writeUTF(mensajeCompleto);
+                        }
                     }
                 }
             }
@@ -119,7 +141,7 @@ public class UnCliente implements Runnable {
     
     private void manejarDesconexion() {
         if (nombreCliente != null) {
-            // Manejar partidas activas
+        
             java.util.List<PartidaGato> partidas = ServidorMulti.obtenerPartidasDeJugador(nombreCliente);
             for (PartidaGato partida : partidas) {
                 if (!partida.isTerminado()) {
@@ -334,14 +356,13 @@ public class UnCliente implements Runnable {
             return;
         }
         
-     
+      
         if (ServidorMulti.tienePartidaActiva(nombreCliente)) {
             salida.writeUTF("[ERROR]: Ya tienes una partida activa. Solo puedes jugar una partida a la vez.");
             salida.writeUTF("[INFO]: Usa 'partidas' para ver tu partida actual o 'rendirse' para abandonarla.");
             return;
         }
-        
-     
+    
         mostrarAyudaGato();
         salida.writeUTF("");
         
@@ -383,7 +404,6 @@ public class UnCliente implements Runnable {
             salida.writeUTF("[ERROR]: El usuario no está conectado.");
             return;
         }
-        
       
         if (ServidorMulti.tienePartidaActiva(invitado)) {
             salida.writeUTF("[ERROR]: " + invitado + " ya está jugando una partida.");
@@ -414,7 +434,6 @@ public class UnCliente implements Runnable {
             return;
         }
         
-      
         if (ServidorMulti.tienePartidaActiva(nombreCliente)) {
             salida.writeUTF("[ERROR]: Ya tienes una partida activa. Solo puedes jugar una partida a la vez.");
             return;
@@ -442,7 +461,7 @@ public class UnCliente implements Runnable {
             
             UnCliente clienteInvitador = ServidorMulti.clientes.get(invitador);
             
-            
+        
             salida.writeUTF("[GATO]: ¡Partida iniciada contra " + invitador + "!");
             salida.writeUTF("[GATO]: Tú eres '" + simboloInvitado + "'");
             if (primerJugador.equals(nombreCliente)) {
@@ -451,6 +470,10 @@ public class UnCliente implements Runnable {
                 salida.writeUTF("[GATO]: Es el turno de " + invitador);
             }
             salida.writeUTF(partida.obtenerTableroTexto());
+            salida.writeUTF("");
+            salida.writeUTF("=== CHAT DE PARTIDA ACTIVADO ===");
+            salida.writeUTF("Los mensajes que escribas solo los verá " + invitador);
+            salida.writeUTF("Para enviar mensajes a todos, cierra la partida primero.");
             salida.writeUTF("");
             salida.writeUTF("=== CÓMO JUGAR ===");
             salida.writeUTF("Escribe: fila columna (ejemplo: 1 2)");
@@ -465,6 +488,7 @@ public class UnCliente implements Runnable {
             salida.writeUTF("  partidas - Ver estado del tablero");
             salida.writeUTF("  rendirse - Abandonar partida");
             
+         
             if (clienteInvitador != null) {
                 clienteInvitador.salida.writeUTF("[GATO]: " + nombreCliente + " aceptó tu invitación!");
                 clienteInvitador.salida.writeUTF("[GATO]: Tú eres '" + simboloInvitador + "'");
@@ -474,6 +498,10 @@ public class UnCliente implements Runnable {
                     clienteInvitador.salida.writeUTF("[GATO]: Es el turno de " + nombreCliente);
                 }
                 clienteInvitador.salida.writeUTF(partida.obtenerTableroTexto());
+                clienteInvitador.salida.writeUTF("");
+                clienteInvitador.salida.writeUTF("=== CHAT DE PARTIDA ACTIVADO ===");
+                clienteInvitador.salida.writeUTF("Los mensajes que escribas solo los verá " + nombreCliente);
+                clienteInvitador.salida.writeUTF("Para enviar mensajes a todos, cierra la partida primero.");
                 clienteInvitador.salida.writeUTF("");
                 clienteInvitador.salida.writeUTF("=== CÓMO JUGAR ===");
                 clienteInvitador.salida.writeUTF("Escribe: fila columna (ejemplo: 1 2)");
@@ -605,10 +633,17 @@ public class UnCliente implements Runnable {
                     }
                 }
                 
+                
+                salida.writeUTF("[SISTEMA]: Chat de partida desactivado. Tus mensajes ahora van a todos.");
+                if (clienteOponente != null) {
+                    clienteOponente.salida.writeUTF("[SISTEMA]: Chat de partida desactivado. Tus mensajes ahora van a todos.");
+                }
+                
                 ServidorMulti.finalizarPartida(partidaActual.getJugador1(), partidaActual.getJugador2());
             } else {
                 String turnoActual = partidaActual.getTurnoActual();
                 
+               
                 salida.writeUTF("[GATO]: Espera el turno de " + oponente);
                 
                
