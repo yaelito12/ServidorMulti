@@ -4,6 +4,9 @@ import java.io.*;
 import java.net.Socket;
 
 public class UnCliente implements Runnable {
+    private static final int MENSAJES_GRATUITOS = 3;
+    private static final String PREFIJO_INVITADO = "invitado_";
+    
     private final DataOutputStream salida;
     private final DataInputStream entrada;
     private final Socket socket;
@@ -23,14 +26,7 @@ public class UnCliente implements Runnable {
     @Override
     public void run() {
         try {
-            salida.writeUTF("=== BIENVENIDO AL CHAT ===");
-            salida.writeUTF("Puedes enviar 3 mensajes de prueba antes de registrarte.");
-            salida.writeUTF("Escribe 'registrar' o 'login' cuando quieras autenticarte.");
-            salida.writeUTF("Escribe 'logout' para cerrar sesión.");
-            salida.writeUTF("Escribe 'help' para ver todos los comandos disponibles.");
-            
-            nombreCliente = "invitado_" + System.currentTimeMillis();
-            ServidorMulti.registrarCliente(nombreCliente, this);
+            inicializarCliente();
             
             while (true) {
                 String mensaje = entrada.readUTF();
@@ -84,7 +80,7 @@ public class UnCliente implements Runnable {
                     continue;
                 }
                 
-                if (!autenticado && mensajesEnviados >= 3) {
+                if (!autenticado && mensajesEnviados >= MENSAJES_GRATUITOS) {
                     salida.writeUTF("[SISTEMA]: Has alcanzado el límite de 3 mensajes.");
                     salida.writeUTF("[SISTEMA]: Escribe 'registrar' para crear una cuenta o 'login' para iniciar sesión.");
                     continue;
@@ -94,7 +90,7 @@ public class UnCliente implements Runnable {
                 
                 if (!autenticado) { 
                     mensajesEnviados++;
-                    int restantes = 3 - mensajesEnviados;
+                    int restantes = MENSAJES_GRATUITOS - mensajesEnviados;
                     if (restantes > 0) {
                         salida.writeUTF("[SISTEMA]: Mensaje enviado. Te quedan " + restantes + " mensajes.");
                     } else {
@@ -115,18 +111,15 @@ public class UnCliente implements Runnable {
                 }
                 
                 if (tienePartidaActiva && oponentePartida != null) {
-                   
                     UnCliente clienteOponente = ServidorMulti.clientes.get(oponentePartida);
                     if (clienteOponente != null) {
                         clienteOponente.salida.writeUTF("[CHAT-PARTIDA] " + nombreCliente + ": " + mensaje);
                     }
                     salida.writeUTF("[CHAT-PARTIDA] Tú: " + mensaje);
                 } else {
-                   
                     String mensajeCompleto = "[" + nombreCliente + "]: " + mensaje;
                     for (UnCliente cliente : ServidorMulti.clientes.values()) {
                         if (cliente != this) {
-                           
                             if (!estaEnPartidaActiva(cliente.nombreCliente)) {
                                 cliente.salida.writeUTF(mensajeCompleto);
                             }
@@ -140,16 +133,45 @@ public class UnCliente implements Runnable {
             manejarDesconexion();
         }
     }
+    
+    
+    private void inicializarCliente() throws IOException {
+        enviarMensajeBienvenida();
+        nombreCliente = PREFIJO_INVITADO + System.currentTimeMillis();
+        ServidorMulti.registrarCliente(nombreCliente, this);
+    }
+    
+    private void enviarMensajeBienvenida() throws IOException {
+        salida.writeUTF("=== BIENVENIDO AL CHAT ===");
+        salida.writeUTF("Puedes enviar 3 mensajes de prueba antes de registrarte.");
+        salida.writeUTF("Escribe 'registrar' o 'login' cuando quieras autenticarte.");
+        salida.writeUTF("Escribe 'logout' para cerrar sesión.");
+        salida.writeUTF("Escribe 'help' para ver todos los comandos disponibles.");
+    }
    
     private boolean estaEnPartidaActiva(String nombreJugador) {
-        java.util.List<PartidaGato> partidas = ServidorMulti.obtenerPartidasDeJugador(nombreJugador);
-        for (PartidaGato p : partidas) {
-            if (!p.isTerminado()) {
-                return true;
-            }
-        }
-        return false;
+        return ServidorMulti.obtenerPartidasDeJugador(nombreJugador).stream()
+            .anyMatch(p -> !p.isTerminado());
     }
+    
+    private void cambiarNombreCliente(String nuevoNombre) {
+        ServidorMulti.clientes.remove(nombreCliente);
+        nombreCliente = nuevoNombre;
+        ServidorMulti.registrarCliente(nombreCliente, this);
+    }
+    
+    private void notificarATodos(String mensaje, UnCliente remitente) {
+        ServidorMulti.clientes.values().stream()
+            .filter(cliente -> cliente != remitente && !estaEnPartidaActiva(cliente.nombreCliente))
+            .forEach(cliente -> {
+                try {
+                    cliente.salida.writeUTF("[SISTEMA]: " + mensaje);
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            });
+    }
+    
     
     private void manejarDesconexion() {
         if (nombreCliente != null) {
@@ -186,7 +208,7 @@ public class UnCliente implements Runnable {
         StringBuilder usuarios = new StringBuilder();
         int contador = 0;
         for (String usuario : ServidorMulti.clientes.keySet()) {
-            if (!usuario.equals(nombreCliente) && !usuario.startsWith("invitado_")) {
+            if (!usuario.equals(nombreCliente) && !usuario.startsWith(PREFIJO_INVITADO)) {
                 if (contador > 0) usuarios.append(", ");
                 usuarios.append(usuario);
                 contador++;
@@ -217,7 +239,7 @@ public class UnCliente implements Runnable {
             return;
         }
         
-        if (!autenticado && mensajesEnviados >= 3) {
+        if (!autenticado && mensajesEnviados >= MENSAJES_GRATUITOS) {
             salida.writeUTF("[ERROR]: Debes autenticarte para enviar mensajes privados.");
             return;
         }
@@ -380,7 +402,7 @@ public class UnCliente implements Runnable {
         int contador = 0;
         
         for (String usuario : ServidorMulti.clientes.keySet()) {
-            if (!usuario.equals(nombreCliente) && !usuario.startsWith("invitado_")) {
+            if (!usuario.equals(nombreCliente) && !usuario.startsWith(PREFIJO_INVITADO)) {
                 boolean tienePartida = ServidorMulti.tienePartidaActiva(usuario);
                 if (contador > 0) usuarios.append(", ");
                 usuarios.append(usuario);
@@ -596,7 +618,7 @@ public class UnCliente implements Runnable {
         }
         
         java.util.List<PartidaGato> partidas = ServidorMulti.obtenerPartidasDeJugador(nombreCliente);
-        PartidaGato partidaActual = null;
+          PartidaGato partidaActual = null;
         
         for (PartidaGato p : partidas) {
             if (!p.isTerminado() && p.getTurnoActual().equals(nombreCliente)) {
@@ -770,10 +792,8 @@ public class UnCliente implements Runnable {
         
         ServidorMulti.registrarUsuario(nuevoNombre, password);
         
-        ServidorMulti.clientes.remove(nombreCliente);
         String nombreAnterior = nombreCliente;
-        nombreCliente = nuevoNombre;
-        ServidorMulti.registrarCliente(nombreCliente, this);
+        cambiarNombreCliente(nuevoNombre);
         autenticado = true;
         mensajesEnviados = 0;
         
@@ -801,10 +821,8 @@ public class UnCliente implements Runnable {
             return;
         }
         
-        ServidorMulti.clientes.remove(nombreCliente);
         String nombreAnterior = nombreCliente;
-        nombreCliente = nombre;
-        ServidorMulti.registrarCliente(nombreCliente, this);
+        cambiarNombreCliente(nombre);
         autenticado = true;
         mensajesEnviados = 0;
         
@@ -820,11 +838,7 @@ public class UnCliente implements Runnable {
         }
         
         String nombreAnterior = nombreCliente;
-        ServidorMulti.clientes.remove(nombreCliente);
-        
-        nombreCliente = "invitado_" + System.currentTimeMillis();
-        ServidorMulti.registrarCliente(nombreCliente, this);
-        
+        cambiarNombreCliente(PREFIJO_INVITADO + System.currentTimeMillis());
         autenticado = false;
         mensajesEnviados = 0;
         
@@ -833,20 +847,5 @@ public class UnCliente implements Runnable {
         System.out.println(nombreAnterior + " cerró sesión y ahora es: " + nombreCliente);
         
         notificarATodos(nombreAnterior + " ha cerrado sesión.", this);
-    }
-    
-    private void notificarATodos(String mensaje, UnCliente remitente) {
-        for (UnCliente cliente : ServidorMulti.clientes.values()) {
-            if (cliente != remitente) {
-            
-                if (!estaEnPartidaActiva(cliente.nombreCliente)) {
-                    try {
-                        cliente.salida.writeUTF("[SISTEMA]: " + mensaje);
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                    }
-                }
-            }
-        }
     }
 }
