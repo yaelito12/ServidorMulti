@@ -2,6 +2,7 @@ package com.mycompany.servidormulti;
 
 import java.io.*;
 import java.net.Socket;
+import java.util.Optional;
 
 public class UnCliente implements Runnable {
     private static final int MENSAJES_GRATUITOS = 3;
@@ -34,50 +35,9 @@ public class UnCliente implements Runnable {
                 ComandoHandler handler = obtenerHandlerComando(mensaje);
                 if (handler.ejecutar()) continue;
                 
-                if (!autenticado && mensajesEnviados >= MENSAJES_GRATUITOS) {
-                    salida.writeUTF("[SISTEMA]: Has alcanzado el límite de 3 mensajes.");
-                    salida.writeUTF("[SISTEMA]: Escribe 'registrar' para crear una cuenta o 'login' para iniciar sesión.");
-                    continue;
-                }
+                if (!verificarLimiteMensajes()) continue;
                 
-                System.out.println("[" + nombreCliente + "]: " + mensaje);
-                
-                if (!autenticado) { 
-                    mensajesEnviados++;
-                    int restantes = MENSAJES_GRATUITOS - mensajesEnviados;
-                    if (restantes > 0) {
-                        salida.writeUTF("[SISTEMA]: Mensaje enviado. Te quedan " + restantes + " mensajes.");
-                    } else {
-                        salida.writeUTF("[SISTEMA]: Has usado tus 3 mensajes gratuitos. Escribe 'registrar' o 'login' para continuar.");
-                    }
-                }
-             
-                java.util.List<PartidaGato> partidasActivas = ServidorMulti.obtenerPartidasDeJugador(nombreCliente);
-                boolean tienePartidaActiva = false;
-                String oponentePartida = null;
-                
-                for (PartidaGato p : partidasActivas) {
-                    if (!p.isTerminado()) {
-                        tienePartidaActiva = true;
-                        oponentePartida = p.getOponente(nombreCliente);
-                        break;
-                    }
-                }
-                
-                if (tienePartidaActiva && oponentePartida != null) {
-                    UnCliente clienteOponente = ServidorMulti.clientes.get(oponentePartida);
-                    if (clienteOponente != null) {
-                        clienteOponente.salida.writeUTF("[CHAT-PARTIDA] " + nombreCliente + ": " + mensaje);
-                    }
-                    salida.writeUTF("[CHAT-PARTIDA] Tú: " + mensaje);
-                } else {
-                    String mensajeCompleto = "[" + nombreCliente + "]: " + mensaje;
-                    for (UnCliente cliente : ServidorMulti.clientes.values()) {
-                        if (cliente != this && !estaEnPartidaActiva(cliente.nombreCliente)) {
-                            cliente.salida.writeUTF(mensajeCompleto);
-                        }
-                    }
-                }
+                procesarMensajeRegular(mensaje);
             }
         } catch (IOException ex) {
             System.out.println(nombreCliente + " se desconectó.");
@@ -116,6 +76,79 @@ public class UnCliente implements Runnable {
         return mensaje.matches("^[1-3]\\s+[1-3]$");
     }
     
+    private boolean verificarLimiteMensajes() throws IOException {
+        boolean limiteAlcanzado = !autenticado && mensajesEnviados >= MENSAJES_GRATUITOS;
+        if (limiteAlcanzado) {
+            salida.writeUTF("[SISTEMA]: Has alcanzado el límite de 3 mensajes.");
+            salida.writeUTF("[SISTEMA]: Escribe 'registrar' para crear una cuenta o 'login' para iniciar sesión.");
+        }
+        return !limiteAlcanzado;
+    }
+    
+    private void procesarMensajeRegular(String mensaje) throws IOException {
+        System.out.println("[" + nombreCliente + "]: " + mensaje);
+        actualizarContadorMensajes();
+        
+        obtenerPartidaActiva()
+            .map(partida -> { enviarMensajeEnPartidaSafe(mensaje, partida); return true; })
+            .orElseGet(() -> { enviarMensajeGeneralSafe(mensaje); return true; });
+    }
+    
+    private void actualizarContadorMensajes() throws IOException {
+        if (autenticado) return;
+        
+        mensajesEnviados++;
+        int restantes = MENSAJES_GRATUITOS - mensajesEnviados;
+        String mensajeSistema = restantes > 0 
+            ? "[SISTEMA]: Mensaje enviado. Te quedan " + restantes + " mensajes."
+            : "[SISTEMA]: Has usado tus 3 mensajes gratuitos. Escribe 'registrar' o 'login' para continuar.";
+        salida.writeUTF(mensajeSistema);
+    }
+    
+    private Optional<PartidaGato> obtenerPartidaActiva() {
+        return ServidorMulti.obtenerPartidasDeJugador(nombreCliente).stream()
+            .filter(p -> !p.isTerminado())
+            .findFirst();
+    }
+    
+    private void enviarMensajeEnPartidaSafe(String mensaje, PartidaGato partida) {
+        try {
+            enviarMensajeEnPartida(mensaje, partida);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+    
+    private void enviarMensajeEnPartida(String mensaje, PartidaGato partida) throws IOException {
+        String oponente = partida.getOponente(nombreCliente);
+        Optional.ofNullable(ServidorMulti.clientes.get(oponente))
+            .ifPresent(cliente -> enviarSafe(cliente, "[CHAT-PARTIDA] " + nombreCliente + ": " + mensaje));
+        salida.writeUTF("[CHAT-PARTIDA] Tú: " + mensaje);
+    }
+    
+    private void enviarMensajeGeneralSafe(String mensaje) {
+        try {
+            enviarMensajeGeneral(mensaje);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+    
+    private void enviarMensajeGeneral(String mensaje) throws IOException {
+        String mensajeCompleto = "[" + nombreCliente + "]: " + mensaje;
+        ServidorMulti.clientes.values().stream()
+            .filter(cliente -> cliente != this && !estaEnPartidaActiva(cliente.nombreCliente))
+            .forEach(cliente -> enviarSafe(cliente, mensajeCompleto));
+    }
+    
+    private void enviarSafe(UnCliente cliente, String mensaje) {
+        try {
+            cliente.salida.writeUTF(mensaje);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+    
     
     private void inicializarCliente() throws IOException {
         enviarMensajeBienvenida();
@@ -145,13 +178,7 @@ public class UnCliente implements Runnable {
     private void notificarATodos(String mensaje, UnCliente remitente) {
         ServidorMulti.clientes.values().stream()
             .filter(cliente -> cliente != remitente && !estaEnPartidaActiva(cliente.nombreCliente))
-            .forEach(cliente -> {
-                try {
-                    cliente.salida.writeUTF("[SISTEMA]: " + mensaje);
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
-            });
+            .forEach(cliente -> enviarSafe(cliente, "[SISTEMA]: " + mensaje));
     }
     
     
@@ -574,7 +601,7 @@ public class UnCliente implements Runnable {
                 PartidaGato p = partidas.get(i);
                 String oponente = p.getOponente(nombreCliente);
                 String estado = p.isTerminado() ? "TERMINADA" : "EN CURSO";
-                String turno = p.isTerminado() ? "" : " - Turno de: " + p.getTurnoActual();
+                  String turno = p.isTerminado() ? "" : " - Turno de: " + p.getTurnoActual();
                 salida.writeUTF((i + 1) + ". vs " + oponente + " [" + estado + "]" + turno);
                 salida.writeUTF(p.obtenerTableroTexto());
             }
@@ -598,8 +625,7 @@ public class UnCliente implements Runnable {
             fila = Integer.parseInt(partes[1]) - 1;
             columna = Integer.parseInt(partes[2]) - 1;
         } catch (NumberFormatException e) {
-          
-                    salida.writeUTF("[ERROR]: Fila y columna deben ser números del 1 al 3.");
+            salida.writeUTF("[ERROR]: Fila y columna deben ser números del 1 al 3.");
             return;
         }
         
@@ -843,4 +869,3 @@ public class UnCliente implements Runnable {
         boolean ejecutar() throws IOException;
     }
 }
-                    
