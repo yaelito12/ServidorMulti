@@ -31,54 +31,8 @@ public class UnCliente implements Runnable {
             while (true) {
                 String mensaje = entrada.readUTF();
                 
-                if (mensaje.equalsIgnoreCase("registrar")) {
-                    registrarUsuario();
-                    continue;
-                } else if (mensaje.equalsIgnoreCase("login")) {
-                    iniciarSesion();
-                    continue;
-                } else if (mensaje.equalsIgnoreCase("logout")) {
-                    cerrarSesion();
-                    continue;
-                } else if (mensaje.equalsIgnoreCase("help")) {
-                    mostrarAyuda();
-                    continue;
-                } else if (mensaje.equals("@") || mensaje.equalsIgnoreCase("privado")) {
-                    mostrarUsuariosYEnviarMensaje();
-                    continue;
-                } else if (mensaje.equalsIgnoreCase("bloquear")) {
-                    mostrarUsuariosYBloquear();
-                    continue;
-                } else if (mensaje.equalsIgnoreCase("desbloquear")) {
-                    mostrarBloqueadosYDesbloquear();
-                    continue;
-                } else if (mensaje.equalsIgnoreCase("misBloqueados") || mensaje.equalsIgnoreCase("mis bloqueados")) {
-                    mostrarMisBloqueados();
-                    continue;
-                } else if (mensaje.equalsIgnoreCase("gato") || mensaje.equalsIgnoreCase("jugar")) {
-                    invitarAJugarGato();
-                    continue;
-                } else if (mensaje.equalsIgnoreCase("aceptar")) {
-                    aceptarInvitacionGato();
-                    continue;
-                } else if (mensaje.equalsIgnoreCase("rechazar")) {
-                    rechazarInvitacionGato();
-                    continue;
-                } else if (mensaje.equalsIgnoreCase("partidas")) {
-                    mostrarPartidasActivas();
-                    continue;
-                } else if (mensaje.toLowerCase().startsWith("jugar ")) {
-                    realizarMovimientoGato(mensaje);
-                    continue;
-                } else if (mensaje.equalsIgnoreCase("rendirse")) {
-                    rendirseEnPartida();
-                    continue;
-                }
-                
-                if (mensaje.matches("^[1-3]\\s+[1-3]$")) {
-                    realizarMovimientoGato("jugar " + mensaje);
-                    continue;
-                }
+                ComandoHandler handler = obtenerHandlerComando(mensaje);
+                if (handler.ejecutar()) continue;
                 
                 if (!autenticado && mensajesEnviados >= MENSAJES_GRATUITOS) {
                     salida.writeUTF("[SISTEMA]: Has alcanzado el límite de 3 mensajes.");
@@ -119,10 +73,8 @@ public class UnCliente implements Runnable {
                 } else {
                     String mensajeCompleto = "[" + nombreCliente + "]: " + mensaje;
                     for (UnCliente cliente : ServidorMulti.clientes.values()) {
-                        if (cliente != this) {
-                            if (!estaEnPartidaActiva(cliente.nombreCliente)) {
-                                cliente.salida.writeUTF(mensajeCompleto);
-                            }
+                        if (cliente != this && !estaEnPartidaActiva(cliente.nombreCliente)) {
+                            cliente.salida.writeUTF(mensajeCompleto);
                         }
                     }
                 }
@@ -132,6 +84,36 @@ public class UnCliente implements Runnable {
         } finally {
             manejarDesconexion();
         }
+    }
+    
+    
+    private ComandoHandler obtenerHandlerComando(String mensaje) {
+        String cmd = mensaje.toLowerCase();
+        
+        if (cmd.equals("registrar")) return () -> { registrarUsuario(); return true; };
+        if (cmd.equals("login")) return () -> { iniciarSesion(); return true; };
+        if (cmd.equals("logout")) return () -> { cerrarSesion(); return true; };
+        if (cmd.equals("help")) return () -> { mostrarAyuda(); return true; };
+        if (cmd.equals("@") || cmd.equals("privado")) return () -> { mostrarUsuariosYEnviarMensaje(); return true; };
+        if (cmd.equals("bloquear")) return () -> { mostrarUsuariosYBloquear(); return true; };
+        if (cmd.equals("desbloquear")) return () -> { mostrarBloqueadosYDesbloquear(); return true; };
+        if (cmd.equals("misbloqueados") || cmd.equals("mis bloqueados")) return () -> { mostrarMisBloqueados(); return true; };
+        if (cmd.equals("gato") || cmd.equals("jugar")) return () -> { invitarAJugarGato(); return true; };
+        if (cmd.equals("aceptar")) return () -> { aceptarInvitacionGato(); return true; };
+        if (cmd.equals("rechazar")) return () -> { rechazarInvitacionGato(); return true; };
+        if (cmd.equals("partidas")) return () -> { mostrarPartidasActivas(); return true; };
+        if (cmd.equals("rendirse")) return () -> { rendirseEnPartida(); return true; };
+        if (esMovimientoGato(mensaje)) return () -> { realizarMovimientoGato(esFormatoSimple(mensaje) ? "jugar " + mensaje : mensaje); return true; };
+        
+        return () -> false;
+    }
+    
+    private boolean esMovimientoGato(String mensaje) {
+        return mensaje.toLowerCase().startsWith("jugar ") || mensaje.matches("^[1-3]\\s+[1-3]$");
+    }
+    
+    private boolean esFormatoSimple(String mensaje) {
+        return mensaje.matches("^[1-3]\\s+[1-3]$");
     }
     
     
@@ -204,6 +186,7 @@ public class UnCliente implements Runnable {
         }
     }
     
+    
     private void mostrarUsuariosYEnviarMensaje() throws IOException {
         StringBuilder usuarios = new StringBuilder();
         int contador = 0;
@@ -258,6 +241,7 @@ public class UnCliente implements Runnable {
             salida.writeUTF("[AVISO]: " + destino + " no está conectado en este momento.");
         }
     }
+    
     
     private void mostrarUsuariosYBloquear() throws IOException {
         if (!autenticado) {
@@ -382,6 +366,7 @@ public class UnCliente implements Runnable {
             salida.writeUTF("[SISTEMA]: Total: " + bloqueados.size() + " usuario(s) bloqueado(s)");
         }
     }
+    
     
     private void invitarAJugarGato() throws IOException {
         if (!autenticado) {
@@ -613,12 +598,13 @@ public class UnCliente implements Runnable {
             fila = Integer.parseInt(partes[1]) - 1;
             columna = Integer.parseInt(partes[2]) - 1;
         } catch (NumberFormatException e) {
-            salida.writeUTF("[ERROR]: Fila y columna deben ser números del 1 al 3.");
+          
+                    salida.writeUTF("[ERROR]: Fila y columna deben ser números del 1 al 3.");
             return;
         }
         
         java.util.List<PartidaGato> partidas = ServidorMulti.obtenerPartidasDeJugador(nombreCliente);
-          PartidaGato partidaActual = null;
+        PartidaGato partidaActual = null;
         
         for (PartidaGato p : partidas) {
             if (!p.isTerminado() && p.getTurnoActual().equals(nombreCliente)) {
@@ -721,6 +707,7 @@ public class UnCliente implements Runnable {
         System.out.println(nombreCliente + " se rindió en la partida contra " + oponente);
     }
     
+    
     private void mostrarAyuda() throws IOException {
         salida.writeUTF("=== COMANDOS DISPONIBLES ===");
         salida.writeUTF("registrar - Crear una nueva cuenta");
@@ -765,6 +752,7 @@ public class UnCliente implements Runnable {
         salida.writeUTF("");
         salida.writeUTF("NOTA: Mientras juegas NO recibirás mensajes del chat general.");
     }
+    
     
     private void registrarUsuario() throws IOException {
         salida.writeUTF("[SISTEMA]: === REGISTRO ===");
@@ -848,4 +836,11 @@ public class UnCliente implements Runnable {
         
         notificarATodos(nombreAnterior + " ha cerrado sesión.", this);
     }
+    
+    
+    @FunctionalInterface
+    private interface ComandoHandler {
+        boolean ejecutar() throws IOException;
+    }
 }
+                    
