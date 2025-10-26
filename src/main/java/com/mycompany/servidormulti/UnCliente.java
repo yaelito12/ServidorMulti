@@ -28,17 +28,7 @@ public class UnCliente implements Runnable {
     public void run() {
         try {
             inicializarCliente();
-            
-            while (true) {
-                String mensaje = entrada.readUTF();
-                
-                ComandoHandler handler = obtenerHandlerComando(mensaje);
-                if (handler.ejecutar()) continue;
-                
-                if (!verificarLimiteMensajes()) continue;
-                
-                procesarMensajeRegular(mensaje);
-            }
+            procesarComandos();
         } catch (IOException ex) {
             System.out.println(nombreCliente + " se desconectó.");
         } finally {
@@ -46,6 +36,20 @@ public class UnCliente implements Runnable {
         }
     }
     
+    // ==================== PROCESAMIENTO DE COMANDOS ====================
+    
+    private void procesarComandos() throws IOException {
+        while (true) {
+            String mensaje = entrada.readUTF();
+            
+            ComandoHandler handler = obtenerHandlerComando(mensaje);
+            if (handler.ejecutar()) continue;
+            
+            if (!verificarLimiteMensajes()) continue;
+            
+            procesarMensajeRegular(mensaje);
+        }
+    }
     
     private ComandoHandler obtenerHandlerComando(String mensaje) {
         String cmd = mensaje.toLowerCase();
@@ -149,6 +153,7 @@ public class UnCliente implements Runnable {
         }
     }
     
+    // ==================== INICIALIZACIÓN ====================
     
     private void inicializarCliente() throws IOException {
         enviarMensajeBienvenida();
@@ -181,31 +186,36 @@ public class UnCliente implements Runnable {
             .forEach(cliente -> enviarSafe(cliente, "[SISTEMA]: " + mensaje));
     }
     
+    // ==================== DESCONEXIÓN ====================
     
     private void manejarDesconexion() {
-        if (nombreCliente != null) {
-            java.util.List<PartidaGato> partidas = ServidorMulti.obtenerPartidasDeJugador(nombreCliente);
-            for (PartidaGato partida : partidas) {
-                if (!partida.isTerminado()) {
-                    partida.abandonar(nombreCliente);
-                    String oponente = partida.getOponente(nombreCliente);
-                    UnCliente clienteOponente = ServidorMulti.clientes.get(oponente);
-                    
-                    if (clienteOponente != null) {
-                        try {
-                            clienteOponente.salida.writeUTF("[GATO]: " + nombreCliente + " se desconectó. ¡Has ganado la partida!");
-                        } catch (IOException e) {
-                            e.printStackTrace();
-                        }
-                    }
-                    ServidorMulti.finalizarPartida(partida.getJugador1(), partida.getJugador2());
-                }
-            }
-            
-            ServidorMulti.clientes.remove(nombreCliente);
-            notificarATodos(nombreCliente + " se ha desconectado.", this);
-        }
+        if (nombreCliente == null) return;
         
+        finalizarPartidasActivas();
+        ServidorMulti.clientes.remove(nombreCliente);
+        notificarATodos(nombreCliente + " se ha desconectado.", this);
+        cerrarSocket();
+    }
+    
+    private void finalizarPartidasActivas() {
+        ServidorMulti.obtenerPartidasDeJugador(nombreCliente).stream()
+            .filter(partida -> !partida.isTerminado())
+            .forEach(this::finalizarPartida);
+    }
+    
+    private void finalizarPartida(PartidaGato partida) {
+        partida.abandonar(nombreCliente);
+        notificarVictoriaPorDesconexion(partida);
+        ServidorMulti.finalizarPartida(partida.getJugador1(), partida.getJugador2());
+    }
+    
+    private void notificarVictoriaPorDesconexion(PartidaGato partida) {
+        String oponente = partida.getOponente(nombreCliente);
+        Optional.ofNullable(ServidorMulti.clientes.get(oponente))
+            .ifPresent(cliente -> enviarSafe(cliente, "[GATO]: " + nombreCliente + " se desconectó. ¡Has ganado la partida!"));
+    }
+    
+    private void cerrarSocket() {
         try {
             socket.close();
         } catch (IOException e) {
@@ -213,6 +223,7 @@ public class UnCliente implements Runnable {
         }
     }
     
+    // ==================== MENSAJES PRIVADOS ====================
     
     private void mostrarUsuariosYEnviarMensaje() throws IOException {
         String usuariosOnline = obtenerUsuariosOnline();
@@ -271,6 +282,7 @@ public class UnCliente implements Runnable {
         return true;
     }
     
+    // ==================== BLOQUEO DE USUARIOS ====================
     
     private void mostrarUsuariosYBloquear() throws IOException {
         if (!verificarAutenticacion()) return;
@@ -375,20 +387,7 @@ public class UnCliente implements Runnable {
             .orElse("");
     }
     
-    
-    private boolean verificarAutenticacion() throws IOException {
-        if (!autenticado) salida.writeUTF("[ERROR]: Debes estar autenticado para usar este comando.");
-        return autenticado;
-    }
-    
-    private boolean validarUsuariosDisponibles(String usuarios, String mensajeError) throws IOException {
-        if (usuarios.isEmpty()) {
-            salida.writeUTF("[SISTEMA]: " + mensajeError);
-            return true;
-        }
-        return false;
-    }
-    
+    // ==================== JUEGO DEL GATO ====================
     
     private void invitarAJugarGato() throws IOException {
         if (!verificarAutenticacion()) return;
@@ -476,72 +475,59 @@ public class UnCliente implements Runnable {
         }
         
         if (ServidorMulti.crearPartida(invitador, nombreCliente)) {
-            PartidaGato partida = ServidorMulti.obtenerPartida(invitador, nombreCliente);
-            
-            String primerJugador = partida.getTurnoActual();
-            char simboloInvitador = partida.getSimbolo(invitador);
-            char simboloInvitado = partida.getSimbolo(nombreCliente);
-            
-            UnCliente clienteInvitador = ServidorMulti.clientes.get(invitador);
-            
-            salida.writeUTF("[GATO]: ¡Partida iniciada contra " + invitador + "!");
-            salida.writeUTF("[GATO]: Tú eres '" + simboloInvitado + "'");
-            if (primerJugador.equals(nombreCliente)) {
-                salida.writeUTF("[GATO]: ¡Es TU TURNO!");
-            } else {
-                salida.writeUTF("[GATO]: Es el turno de " + invitador);
-            }
-            salida.writeUTF(partida.obtenerTableroTexto());
-            salida.writeUTF("");
-            salida.writeUTF("=== CHAT DE PARTIDA ACTIVADO ===");
-            salida.writeUTF("Los mensajes que escribas solo los verá " + invitador);
-            salida.writeUTF("NO recibirás mensajes del chat general mientras juegas.");
-            salida.writeUTF("Para volver al chat general, finaliza la partida.");
-            salida.writeUTF("");
-            salida.writeUTF("=== CÓMO JUGAR ===");
-            salida.writeUTF("Escribe: fila columna (ejemplo: 1 2)");
-            salida.writeUTF("O también: jugar fila columna (ejemplo: jugar 2 3)");
-            salida.writeUTF("");
-            salida.writeUTF("Coordenadas del tablero:");
-            salida.writeUTF("  Fila 1: posiciones 1 1, 1 2, 1 3 (arriba)");
-            salida.writeUTF("  Fila 2: posiciones 2 1, 2 2, 2 3 (centro)");
-            salida.writeUTF("  Fila 3: posiciones 3 1, 3 2, 3 3 (abajo)");
-            salida.writeUTF("");
-            salida.writeUTF("Comandos útiles:");
-            salida.writeUTF("  partidas - Ver estado del tablero");
-            salida.writeUTF("  rendirse - Abandonar partida");
-            
-            if (clienteInvitador != null) {
-                clienteInvitador.salida.writeUTF("[GATO]: " + nombreCliente + " aceptó tu invitación!");
-                clienteInvitador.salida.writeUTF("[GATO]: Tú eres '" + simboloInvitador + "'");
-                if (primerJugador.equals(invitador)) {
-                    clienteInvitador.salida.writeUTF("[GATO]: ¡Es TU TURNO!");
-                } else {
-                    clienteInvitador.salida.writeUTF("[GATO]: Es el turno de " + nombreCliente);
-                }
-                clienteInvitador.salida.writeUTF(partida.obtenerTableroTexto());
-                clienteInvitador.salida.writeUTF("");
-                clienteInvitador.salida.writeUTF("=== CHAT DE PARTIDA ACTIVADO ===");
-                clienteInvitador.salida.writeUTF("Los mensajes que escribas solo los verá " + nombreCliente);
-                clienteInvitador.salida.writeUTF("NO recibirás mensajes del chat general mientras juegas.");
-                clienteInvitador.salida.writeUTF("Para volver al chat general, finaliza la partida.");
-                clienteInvitador.salida.writeUTF("");
-                clienteInvitador.salida.writeUTF("=== CÓMO JUGAR ===");
-                clienteInvitador.salida.writeUTF("Escribe: fila columna (ejemplo: 1 2)");
-                clienteInvitador.salida.writeUTF("O también: jugar fila columna (ejemplo: jugar 2 3)");
-                clienteInvitador.salida.writeUTF("");
-                clienteInvitador.salida.writeUTF("Coordenadas del tablero:");
-                clienteInvitador.salida.writeUTF("  Fila 1: posiciones 1 1, 1 2, 1 3 (arriba)");
-                clienteInvitador.salida.writeUTF("  Fila 2: posiciones 2 1, 2 2, 2 3 (centro)");
-                clienteInvitador.salida.writeUTF("  Fila 3: posiciones 3 1, 3 2, 3 3 (abajo)");
-                clienteInvitador.salida.writeUTF("");
-                clienteInvitador.salida.writeUTF("Comandos útiles:");
-                clienteInvitador.salida.writeUTF("  partidas - Ver estado del tablero");
-                clienteInvitador.salida.writeUTF("  rendirse - Abandonar partida");
-            }
+            iniciarPartida(invitador);
         } else {
             salida.writeUTF("[ERROR]: No se pudo crear la partida.");
         }
+    }
+    
+    private void iniciarPartida(String invitador) throws IOException {
+        PartidaGato partida = ServidorMulti.obtenerPartida(invitador, nombreCliente);
+        UnCliente clienteInvitador = ServidorMulti.clientes.get(invitador);
+        enviarInformacionPartida(partida, invitador, clienteInvitador);
+    }
+    
+    private void enviarInformacionPartida(PartidaGato partida, String oponente, UnCliente clienteOponente) throws IOException {
+        String primerJugador = partida.getTurnoActual();
+        enviarMensajesInicioPartida(partida, oponente, primerJugador, partida.getSimbolo(nombreCliente));
+        
+        Optional.ofNullable(clienteOponente)
+            .ifPresent(cliente -> {
+                try {
+                    cliente.enviarMensajesInicioPartida(partida, nombreCliente, primerJugador, partida.getSimbolo(oponente));
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            });
+    }
+    
+    private void enviarMensajesInicioPartida(PartidaGato partida, String oponente, String primerJugador, char simbolo) throws IOException {
+        salida.writeUTF("[GATO]: ¡Partida iniciada contra " + oponente + "!");
+        salida.writeUTF("[GATO]: Tú eres '" + simbolo + "'");
+        salida.writeUTF(primerJugador.equals(nombreCliente) ? "[GATO]: ¡Es TU TURNO!" : "[GATO]: Es el turno de " + oponente);
+        salida.writeUTF(partida.obtenerTableroTexto());
+        enviarInstruccionesPartida(oponente);
+    }
+    
+    private void enviarInstruccionesPartida(String oponente) throws IOException {
+        salida.writeUTF("");
+        salida.writeUTF("=== CHAT DE PARTIDA ACTIVADO ===");
+        salida.writeUTF("Los mensajes que escribas solo los verá " + oponente);
+        salida.writeUTF("NO recibirás mensajes del chat general mientras juegas.");
+        salida.writeUTF("Para volver al chat general, finaliza la partida.");
+        salida.writeUTF("");
+        salida.writeUTF("=== CÓMO JUGAR ===");
+        salida.writeUTF("Escribe: fila columna (ejemplo: 1 2)");
+        salida.writeUTF("O también: jugar fila columna (ejemplo: jugar 2 3)");
+        salida.writeUTF("");
+        salida.writeUTF("Coordenadas del tablero:");
+        salida.writeUTF("  Fila 1: posiciones 1 1, 1 2, 1 3 (arriba)");
+        salida.writeUTF("  Fila 2: posiciones 2 1, 2 2, 2 3 (centro)");
+        salida.writeUTF("  Fila 3: posiciones 3 1, 3 2, 3 3 (abajo)");
+        salida.writeUTF("");
+        salida.writeUTF("Comandos útiles:");
+        salida.writeUTF("  partidas - Ver estado del tablero");
+        salida.writeUTF("  rendirse - Abandonar partida");
     }
     
     private void rechazarInvitacionGato() throws IOException {
@@ -564,141 +550,166 @@ public class UnCliente implements Runnable {
         if (!verificarAutenticacion()) return;
         
         java.util.List<PartidaGato> partidas = ServidorMulti.obtenerPartidasDeJugador(nombreCliente);
-        
         if (partidas.isEmpty()) {
             salida.writeUTF("[SISTEMA]: No tienes partidas activas.");
-        } else {
-                salida.writeUTF("[SISTEMA]: === TUS PARTIDAS ===");
-            for (int i = 0; i < partidas.size(); i++) {
-                PartidaGato p = partidas.get(i);
-                String oponente = p.getOponente(nombreCliente);
-                String estado = p.isTerminado() ? "TERMINADA" : "EN CURSO";
-                String turno = p.isTerminado() ? "" : " - Turno de: " + p.getTurnoActual();
-                salida.writeUTF((i + 1) + ". vs " + oponente + " [" + estado + "]" + turno);
-                salida.writeUTF(p.obtenerTableroTexto());
-            }
+            return;
         }
+        
+        salida.writeUTF("[SISTEMA]: === TUS PARTIDAS ===");
+        for (int i = 0; i < partidas.size(); i++) {
+            mostrarDetallesPartida(partidas.get(i), i + 1);
+        }
+    }
+    
+    private void mostrarDetallesPartida(PartidaGato partida, int numero) throws IOException {
+        String oponente = partida.getOponente(nombreCliente);
+        String estado = partida.isTerminado() ? "TERMINADA" : "EN CURSO";
+        String turno = partida.isTerminado() ? "" : " - Turno de: " + partida.getTurnoActual();
+        
+        salida.writeUTF(numero + ". vs " + oponente + " [" + estado + "]" + turno);
+        salida.writeUTF(partida.obtenerTableroTexto());
     }
     
     private void realizarMovimientoGato(String comando) throws IOException {
         if (!verificarAutenticacion()) return;
         
+        int[] coordenadas = parsearCoordenadas(comando);
+        if (coordenadas == null) return;
+        
+        Optional.ofNullable(obtenerPartidaConTurno())
+            .map(partida -> {
+                try {
+                    if (partida.realizarMovimiento(nombreCliente, coordenadas[0], coordenadas[1])) {
+                        procesarMovimientoExitoso(partida);
+                    } else {
+                        salida.writeUTF("[ERROR]: Movimiento inválido. La casilla debe estar vacía y en el rango 1-3.");
+                    }
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+                return true;
+            })
+            .orElseGet(() -> {
+                try {
+                    salida.writeUTF("[ERROR]: No es tu turno en ninguna partida o no tienes partidas activas.");
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+                return false;
+            });
+    }
+    
+    private int[] parsearCoordenadas(String comando) throws IOException {
         String[] partes = comando.split("\\s+");
         if (partes.length != 3) {
-            salida.writeUTF("[ERROR]: Formato incorrecto. Usa: jugar fila columna (ej: jugar 1 2)");
-            return;
+              salida.writeUTF("[ERROR]: Formato incorrecto. Usa: jugar fila columna (ej: jugar 1 2)");
+            return null;
         }
         
-        int fila, columna;
         try {
-            fila = Integer.parseInt(partes[1]) - 1;
-            columna = Integer.parseInt(partes[2]) - 1;
+            return new int[]{Integer.parseInt(partes[1]) - 1, Integer.parseInt(partes[2]) - 1};
         } catch (NumberFormatException e) {
             salida.writeUTF("[ERROR]: Fila y columna deben ser números del 1 al 3.");
-            return;
+            return null;
         }
+    }
+    
+    private PartidaGato obtenerPartidaConTurno() {
+        return ServidorMulti.obtenerPartidasDeJugador(nombreCliente).stream()
+            .filter(p -> !p.isTerminado() && p.getTurnoActual().equals(nombreCliente))
+            .findFirst()
+            .orElse(null);
+    }
+    
+    private void procesarMovimientoExitoso(PartidaGato partida) throws IOException {
+        String oponente = partida.getOponente(nombreCliente);
+        UnCliente clienteOponente = ServidorMulti.clientes.get(oponente);
         
-        java.util.List<PartidaGato> partidas = ServidorMulti.obtenerPartidasDeJugador(nombreCliente);
-        PartidaGato partidaActual = null;
+        salida.writeUTF("[GATO]: Movimiento realizado.");
+        salida.writeUTF(partida.obtenerTableroTexto());
         
-        for (PartidaGato p : partidas) {
-            if (!p.isTerminado() && p.getTurnoActual().equals(nombreCliente)) {
-                partidaActual = p;
-                break;
-            }
-        }
+        Optional.ofNullable(clienteOponente).ifPresent(cliente -> {
+            enviarSafe(cliente, "[GATO]: " + nombreCliente + " realizó un movimiento.");
+            enviarSafe(cliente, partida.obtenerTableroTexto());
+        });
         
-        if (partidaActual == null) {
-            salida.writeUTF("[ERROR]: No es tu turno en ninguna partida o no tienes partidas activas.");
-            return;
-        }
-        
-        if (partidaActual.realizarMovimiento(nombreCliente, fila, columna)) {
-            String oponente = partidaActual.getOponente(nombreCliente);
-            UnCliente clienteOponente = ServidorMulti.clientes.get(oponente);
-            
-            salida.writeUTF("[GATO]: Movimiento realizado.");
-            salida.writeUTF(partidaActual.obtenerTableroTexto());
-            
-            if (clienteOponente != null) {
-                clienteOponente.salida.writeUTF("[GATO]: " + nombreCliente + " realizó un movimiento.");
-                clienteOponente.salida.writeUTF(partidaActual.obtenerTableroTexto());
-            }
-            
-            if (partidaActual.isTerminado()) {
-                String ganador = partidaActual.getGanador();
-                
-                if (ganador.equals("EMPATE")) {
-                    salida.writeUTF("[GATO]: ¡EMPATE! La partida terminó en empate.");
-                    if (clienteOponente != null) {
-                        clienteOponente.salida.writeUTF("[GATO]: ¡EMPATE! La partida terminó en empate.");
-                    }
-                } else if (ganador.equals(nombreCliente)) {
-                    salida.writeUTF("[GATO]: ¡FELICIDADES! ¡HAS GANADO!");
-                    if (clienteOponente != null) {
-                        clienteOponente.salida.writeUTF("[GATO]: Has perdido. " + ganador + " ganó la partida.");
-                    }
-                } else {
-                    salida.writeUTF("[GATO]: Has perdido. " + ganador + " ganó la partida.");
-                    if (clienteOponente != null) {
-                        clienteOponente.salida.writeUTF("[GATO]: ¡FELICIDADES! ¡HAS GANADO!");
-                    }
-                }
-                
-                salida.writeUTF("[SISTEMA]: Chat de partida desactivado. Tus mensajes ahora van a todos (excepto jugadores en partida).");
-                if (clienteOponente != null) {
-                    clienteOponente.salida.writeUTF("[SISTEMA]: Chat de partida desactivado. Tus mensajes ahora van a todos (excepto jugadores en partida).");
-                }
-                
-                ServidorMulti.finalizarPartida(partidaActual.getJugador1(), partidaActual.getJugador2());
-            } else {
-                String turnoActual = partidaActual.getTurnoActual();
-                
-                salida.writeUTF("[GATO]: Espera el turno de " + oponente);
-                
-                if (clienteOponente != null) {
-                    clienteOponente.salida.writeUTF("[GATO]: ¡Es TU TURNO!");
-                }
-            }
+        if (partida.isTerminado()) {
+            procesarFinDePartida(partida, oponente, clienteOponente);
         } else {
-            salida.writeUTF("[ERROR]: Movimiento inválido. La casilla debe estar vacía y en el rango 1-3.");
+            notificarCambioTurno(partida, oponente, clienteOponente);
         }
+    }
+    
+    private void procesarFinDePartida(PartidaGato partida, String oponente, UnCliente clienteOponente) throws IOException {
+        enviarResultadoPartida(partida.getGanador(), oponente, clienteOponente);
+        
+        salida.writeUTF("[SISTEMA]: Chat de partida desactivado. Tus mensajes ahora van a todos (excepto jugadores en partida).");
+        Optional.ofNullable(clienteOponente)
+            .ifPresent(cliente -> enviarSafe(cliente, "[SISTEMA]: Chat de partida desactivado. Tus mensajes ahora van a todos (excepto jugadores en partida)."));
+        
+        ServidorMulti.finalizarPartida(partida.getJugador1(), partida.getJugador2());
+    }
+    
+    private void enviarResultadoPartida(String ganador, String oponente, UnCliente clienteOponente) throws IOException {
+        boolean empate = ganador.equals("EMPATE");
+        boolean gane = ganador.equals(nombreCliente);
+        
+        String miMensaje = empate ? "[GATO]: ¡EMPATE! La partida terminó en empate." 
+            : gane ? "[GATO]: ¡FELICIDADES! ¡HAS GANADO!" 
+            : "[GATO]: Has perdido. " + ganador + " ganó la partida.";
+            
+        String mensajeOponente = empate ? "[GATO]: ¡EMPATE! La partida terminó en empate."
+            : gane ? "[GATO]: Has perdido. " + ganador + " ganó la partida."
+            : "[GATO]: ¡FELICIDADES! ¡HAS GANADO!";
+        
+        salida.writeUTF(miMensaje);
+        Optional.ofNullable(clienteOponente).ifPresent(cliente -> enviarSafe(cliente, mensajeOponente));
+    }
+    
+    private void notificarCambioTurno(PartidaGato partida, String oponente, UnCliente clienteOponente) throws IOException {
+        salida.writeUTF("[GATO]: Espera el turno de " + oponente);
+        Optional.ofNullable(clienteOponente).ifPresent(cliente -> enviarSafe(cliente, "[GATO]: ¡Es TU TURNO!"));
     }
     
     private void rendirseEnPartida() throws IOException {
         if (!verificarAutenticacion()) return;
         
-        java.util.List<PartidaGato> partidas = ServidorMulti.obtenerPartidasDeJugador(nombreCliente);
-        PartidaGato partidaActual = null;
-        
-        for (PartidaGato p : partidas) {
-            if (!p.isTerminado()) {
-                partidaActual = p;
-                break;
-            }
-        }
-        
-        if (partidaActual == null) {
-            salida.writeUTF("[ERROR]: No tienes partidas activas.");
-            return;
-        }
-        
-        String oponente = partidaActual.getOponente(nombreCliente);
-        partidaActual.abandonar(nombreCliente);
+        Optional.ofNullable(obtenerPartidaActiva().orElse(null))
+            .ifPresentOrElse(
+                partida -> {
+                    try {
+                        ejecutarRendicion(partida);
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                },
+                () -> {
+                    try {
+                        salida.writeUTF("[ERROR]: No tienes partidas activas.");
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                }
+            );
+    }
+    
+    private void ejecutarRendicion(PartidaGato partida) throws IOException {
+        String oponente = partida.getOponente(nombreCliente);
+        partida.abandonar(nombreCliente);
         
         salida.writeUTF("[GATO]: Te has rendido. " + oponente + " gana la partida.");
         salida.writeUTF("[SISTEMA]: Chat de partida desactivado. Volviste al chat general.");
         
-        UnCliente clienteOponente = ServidorMulti.clientes.get(oponente);
-        if (clienteOponente != null) {
-            clienteOponente.salida.writeUTF("[GATO]: " + nombreCliente + " se rindió. ¡Has ganado!");
-            clienteOponente.salida.writeUTF("[SISTEMA]: Chat de partida desactivado. Volviste al chat general.");
-        }
+        Optional.ofNullable(ServidorMulti.clientes.get(oponente)).ifPresent(cliente -> {
+            enviarSafe(cliente, "[GATO]: " + nombreCliente + " se rindió. ¡Has ganado!");
+            enviarSafe(cliente, "[SISTEMA]: Chat de partida desactivado. Volviste al chat general.");
+        });
         
-        ServidorMulti.finalizarPartida(partidaActual.getJugador1(), partidaActual.getJugador2());
+        ServidorMulti.finalizarPartida(partida.getJugador1(), partida.getJugador2());
         System.out.println(nombreCliente + " se rindió en la partida contra " + oponente);
     }
     
+    // ==================== AYUDA ====================
     
     private void mostrarAyuda() throws IOException {
         salida.writeUTF("=== COMANDOS DISPONIBLES ===");
@@ -745,6 +756,7 @@ public class UnCliente implements Runnable {
         salida.writeUTF("NOTA: Mientras juegas NO recibirás mensajes del chat general.");
     }
     
+    // ==================== AUTENTICACIÓN ====================
     
     private void registrarUsuario() throws IOException {
         salida.writeUTF("[SISTEMA]: === REGISTRO ===");
@@ -752,15 +764,7 @@ public class UnCliente implements Runnable {
         
         String nuevoNombre = entrada.readUTF().trim();
         
-        if (nuevoNombre.isEmpty() || nuevoNombre.contains(" ") || nuevoNombre.contains("@")) {
-            salida.writeUTF("[ERROR]: Nombre inválido. No puede contener espacios ni '@'. Intenta de nuevo escribiendo 'registrar'.");
-            return;
-        }
-        
-        if (!ServidorMulti.nombreDisponible(nuevoNombre) || ServidorMulti.usuarios.containsKey(nuevoNombre)) {
-            salida.writeUTF("[ERROR]: El nombre '" + nuevoNombre + "' ya está en uso.");
-            return;
-        }
+        if (!validarNombreUsuario(nuevoNombre) || !validarDisponibilidadNombre(nuevoNombre)) return;
         
         salida.writeUTF("[SISTEMA]: Ingresa tu contraseña:");
         String password = entrada.readUTF().trim();
@@ -770,6 +774,26 @@ public class UnCliente implements Runnable {
             return;
         }
         
+        completarRegistro(nuevoNombre, password);
+    }
+    
+    private boolean validarNombreUsuario(String nombre) throws IOException {
+        boolean valido = !nombre.isEmpty() && !nombre.contains(" ") && !nombre.contains("@");
+        if (!valido) {
+            salida.writeUTF("[ERROR]: Nombre inválido. No puede contener espacios ni '@'. Intenta de nuevo escribiendo 'registrar'.");
+        }
+        return valido;
+    }
+    
+    private boolean validarDisponibilidadNombre(String nombre) throws IOException {
+        boolean disponible = ServidorMulti.nombreDisponible(nombre) && !ServidorMulti.usuarios.containsKey(nombre);
+        if (!disponible) {
+            salida.writeUTF("[ERROR]: El nombre '" + nombre + "' ya está en uso.");
+        }
+        return disponible;
+    }
+    
+    private void completarRegistro(String nuevoNombre, String password) throws IOException {
         ServidorMulti.registrarUsuario(nuevoNombre, password);
         
         String nombreAnterior = nombreCliente;
@@ -785,7 +809,6 @@ public class UnCliente implements Runnable {
     private void iniciarSesion() throws IOException {
         salida.writeUTF("[SISTEMA]: === INICIO DE SESIÓN ===");
         salida.writeUTF("[SISTEMA]: Ingresa tu nombre de usuario:");
-        
         String nombre = entrada.readUTF().trim();
         
         salida.writeUTF("[SISTEMA]: Ingresa tu contraseña:");
@@ -801,6 +824,10 @@ public class UnCliente implements Runnable {
             return;
         }
         
+        completarInicioSesion(nombre);
+    }
+    
+    private void completarInicioSesion(String nombre) throws IOException {
         String nombreAnterior = nombreCliente;
         cambiarNombreCliente(nombre);
         autenticado = true;
@@ -829,6 +856,22 @@ public class UnCliente implements Runnable {
         notificarATodos(nombreAnterior + " ha cerrado sesión.", this);
     }
     
+    // ==================== UTILIDADES ====================
+    
+    private boolean verificarAutenticacion() throws IOException {
+        if (!autenticado) salida.writeUTF("[ERROR]: Debes estar autenticado para usar este comando.");
+        return autenticado;
+    }
+    
+    private boolean validarUsuariosDisponibles(String usuarios, String mensajeError) throws IOException {
+        if (usuarios.isEmpty()) {
+            salida.writeUTF("[SISTEMA]: " + mensajeError);
+            return true;
+        }
+        return false;
+    }
+    
+    // ==================== INTERFAZ FUNCIONAL ====================
     
     @FunctionalInterface
     private interface ComandoHandler {
