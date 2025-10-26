@@ -208,7 +208,7 @@ public class UnCliente implements Runnable {
         String oponente = partida.getOponente(nombreCliente);
         partida.abandonar(nombreCliente);
         
-     
+    
         ServidorMulti.registrarResultadoPartida(partida.getJugador1(), partida.getJugador2(), oponente);
         
         notificarVictoriaPorDesconexion(partida);
@@ -649,7 +649,6 @@ public class UnCliente implements Runnable {
     private void procesarFinDePartida(PartidaGato partida, String oponente, UnCliente clienteOponente) throws IOException {
         String ganador = partida.getGanador();
         
-     =
         ServidorMulti.registrarResultadoPartida(partida.getJugador1(), partida.getJugador2(), ganador);
         
         enviarResultadoPartida(ganador, oponente, clienteOponente);
@@ -708,7 +707,6 @@ public class UnCliente implements Runnable {
         String oponente = partida.getOponente(nombreCliente);
         partida.abandonar(nombreCliente);
         
-       
         ServidorMulti.registrarResultadoPartida(partida.getJugador1(), partida.getJugador2(), oponente);
         
         salida.writeUTF("[GATO]: Te has rendido. " + oponente + " gana la partida.");
@@ -723,7 +721,8 @@ public class UnCliente implements Runnable {
         System.out.println(nombreCliente + " se rindió en la partida contra " + oponente);
     }
     
-  
+    // ==================== RANKING ====================
+    
     private void mostrarRankingGeneral() throws IOException {
         if (!verificarAutenticacion()) return;
         
@@ -745,7 +744,78 @@ public class UnCliente implements Runnable {
         salida.writeUTF("");
     }
     
-   
+    private void mostrarEstadisticasVs() throws IOException {
+        if (!verificarAutenticacion()) return;
+        
+        String usuariosDisponibles = obtenerUsuariosConEstadisticas();
+        
+        if (usuariosDisponibles.isEmpty()) {
+            salida.writeUTF("[SISTEMA]: No hay otros jugadores con estadísticas.");
+            return;
+        }
+        
+        salida.writeUTF("[JUGADORES]: " + usuariosDisponibles);
+        salida.writeUTF("[SISTEMA]: Escribe el nombre del jugador:");
+        
+        String oponente = entrada.readUTF().trim();
+        
+        if (oponente.isEmpty()) {
+            salida.writeUTF("[SISTEMA]: Operación cancelada.");
+            return;
+        }
+        
+        if (!ServidorMulti.usuarios.containsKey(oponente)) {
+            salida.writeUTF("[ERROR]: El jugador '" + oponente + "' no existe.");
+            return;
+        }
+        
+        if (oponente.equals(nombreCliente)) {
+            salida.writeUTF("[ERROR]: No puedes ver estadísticas contra ti mismo.");
+            return;
+        }
+        
+        mostrarEstadisticasEnfrentamiento(oponente);
+    }
+    
+    private String obtenerUsuariosConEstadisticas() {
+        return ServidorMulti.usuarios.keySet().stream()
+            .filter(usuario -> !usuario.equals(nombreCliente))
+            .map(usuario -> usuario + (ServidorMulti.clientes.containsKey(usuario) ? "[ON]" : "[OFF]"))
+            .reduce((a, b) -> a + ", " + b)
+            .orElse("");
+    }
+    
+    private void mostrarEstadisticasEnfrentamiento(String oponente) throws IOException {
+        BaseDatos.EstadisticasEnfrentamiento stats = 
+            ServidorMulti.obtenerEstadisticasEnfrentamiento(nombreCliente, oponente);
+        
+        salida.writeUTF("");
+        salida.writeUTF("=== ESTADÍSTICAS: " + nombreCliente + " vs " + oponente + " ===");
+        salida.writeUTF("");
+        
+        if (stats.totalPartidas == 0) {
+            salida.writeUTF("No hay partidas registradas entre estos jugadores.");
+        } else {
+            salida.writeUTF("Total de partidas: " + stats.totalPartidas);
+            salida.writeUTF("");
+            salida.writeUTF(nombreCliente + ": " + stats.victoriasJ1 + " victorias (" + 
+                           String.format("%.1f", stats.porcentajeJ1) + "%)");
+            salida.writeUTF(oponente + ": " + stats.victoriasJ2 + " victorias (" + 
+                           String.format("%.1f", stats.porcentajeJ2) + "%)");
+            salida.writeUTF("Empates: " + stats.empates);
+            salida.writeUTF("");
+            
+            if (stats.victoriasJ1 > stats.victoriasJ2) {
+                salida.writeUTF("¡Tienes ventaja sobre " + oponente + "!");
+            } else if (stats.victoriasJ2 > stats.victoriasJ1) {
+                salida.writeUTF(oponente + " tiene ventaja sobre ti.");
+            } else {
+                salida.writeUTF("Están empatados en victorias.");
+            }
+        }
+        salida.writeUTF("");
+    }
+    
     // ==================== AYUDA ====================
     
     private void mostrarAyuda() throws IOException {
