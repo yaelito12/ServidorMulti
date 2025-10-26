@@ -22,6 +22,7 @@ public class PartidaGato {
         inicializarTablero();
     }
     
+    
     private void inicializarTablero() {
         for (int i = 0; i < 3; i++) {
             for (int j = 0; j < 3; j++) {
@@ -98,7 +99,7 @@ public class PartidaGato {
     }
     
     private boolean verificarGanador(char simbolo) {
-      
+             
         for (int i = 0; i < 3; i++) {
             if (tablero[i][0] == simbolo && tablero[i][1] == simbolo && tablero[i][2] == simbolo) {
                 return true;
