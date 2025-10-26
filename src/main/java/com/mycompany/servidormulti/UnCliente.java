@@ -206,6 +206,10 @@ public class UnCliente implements Runnable {
     
     private void finalizarPartida(PartidaGato partida) {
         partida.abandonar(nombreCliente);
+        
+        
+        ServidorMulti.registrarResultadoPartida(partida.getJugador1(), partida.getJugador2(), oponente);
+        
         notificarVictoriaPorDesconexion(partida);
         ServidorMulti.finalizarPartida(partida.getJugador1(), partida.getJugador2());
     }
@@ -644,6 +648,11 @@ public class UnCliente implements Runnable {
     private void procesarFinDePartida(PartidaGato partida, String oponente, UnCliente clienteOponente) throws IOException {
         String ganador = partida.getGanador();
         
+       
+        ServidorMulti.registrarResultadoPartida(partida.getJugador1(), partida.getJugador2(), ganador);
+        
+        enviarResultadoPartida(ganador, oponente, clienteOponente);
+        
         salida.writeUTF("[SISTEMA]: Chat de partida desactivado. Tus mensajes ahora van a todos (excepto jugadores en partida).");
         Optional.ofNullable(clienteOponente)
             .ifPresent(cliente -> enviarSafe(cliente, "[SISTEMA]: Chat de partida desactivado. Tus mensajes ahora van a todos (excepto jugadores en partida)."));
@@ -697,6 +706,9 @@ public class UnCliente implements Runnable {
     private void ejecutarRendicion(PartidaGato partida) throws IOException {
         String oponente = partida.getOponente(nombreCliente);
         partida.abandonar(nombreCliente);
+        
+      
+        ServidorMulti.registrarResultadoPartida(partida.getJugador1(), partida.getJugador2(), oponente);
         
         salida.writeUTF("[GATO]: Te has rendido. " + oponente + " gana la partida.");
         salida.writeUTF("[SISTEMA]: Chat de partida desactivado. Volviste al chat general.");
