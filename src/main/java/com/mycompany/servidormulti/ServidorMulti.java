@@ -1,5 +1,4 @@
 package com.mycompany.servidormulti;
-
 import com.mycompany.servidormulti.BaseDatos;
 import java.io.*;
 import java.net.ServerSocket;
@@ -26,6 +25,7 @@ public class ServidorMulti {
             System.out.println("Sistema de autenticación activado: 3 mensajes gratuitos");
             System.out.println("Sistema de bloqueo activado");
             System.out.println("Sistema de juego Gato activado");
+            System.out.println("Sistema de ranking activado");
             System.out.println("Usuarios cargados: " + usuarios.size());
             
             while (true) {
@@ -86,6 +86,7 @@ public class ServidorMulti {
         usuarios = bd.cargarTodosLosUsuarios();
         System.out.println("Usuarios cargados de la BD: " + usuarios.size());
     }
+    
     
     public static synchronized boolean enviarInvitacionGato(String invitador, String invitado) {
         String claveInvitacion = invitado + "_invitacion";
@@ -159,5 +160,18 @@ public class ServidorMulti {
             }
         }
         return partidas;
+    }
+    
+    
+    public static void registrarResultadoPartida(String jugador1, String jugador2, String ganador) {
+        bd.registrarResultadoPartida(jugador1, jugador2, ganador);
+    }
+    
+    public static java.util.List<String> obtenerRankingGeneral() {
+        return bd.obtenerRankingGeneral();
+    }
+    
+    public static BaseDatos.EstadisticasEnfrentamiento obtenerEstadisticasEnfrentamiento(String jugador1, String jugador2) {
+        return bd.obtenerEstadisticasEnfrentamiento(jugador1, jugador2);
     }
 }
