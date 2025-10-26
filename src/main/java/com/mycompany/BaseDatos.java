@@ -57,44 +57,71 @@ public class BaseDatos {
     }
     
     public synchronized void guardarUsuario(String nombre, String password) {
-        String sql = "INSERT INTO usuarios (nombre, password) VALUES (?, ?)";
-        try (Connection conn = DriverManager.getConnection(DB_URL);
-             PreparedStatement pstmt = conn.prepareStatement(sql)) {
-            pstmt.setString(1, nombre);
-            pstmt.setString(2, password);
-            pstmt.executeUpdate();
-         
-            inicializarEstadisticas(nombre);
+        String sqlUsuario = "INSERT INTO usuarios (nombre, password) VALUES (?, ?)";
+        String sqlEstadisticas = "INSERT OR IGNORE INTO estadisticas_gato (jugador, victorias, empates, derrotas, puntos) VALUES (?, 0, 0, 0, 0)";
+        
+        try (Connection conn = DriverManager.getConnection(DB_URL)) {
+            conn.setAutoCommit(false);
+            
+            try {
+                // Insertar usuario
+                try (PreparedStatement pstmt = conn.prepareStatement(sqlUsuario)) {
+                    pstmt.setString(1, nombre);
+                    pstmt.setString(2, password);
+                    pstmt.executeUpdate();
+                }
+                
+                // Inicializar estadísticas
+                try (PreparedStatement pstmt = conn.prepareStatement(sqlEstadisticas)) {
+                    pstmt.setString(1, nombre);
+                    pstmt.executeUpdate();
+                }
+                
+                conn.commit();
+            } catch (SQLException e) {
+                conn.rollback();
+                throw e;
+            }
         } catch (SQLException e) {
             System.err.println("Error guardando usuario: " + e.getMessage());
         }
     }
     
-    private void inicializarEstadisticas(String jugador) {
+    private void inicializarEstadisticasLote(Connection conn, String jugador) throws SQLException {
         String sql = "INSERT OR IGNORE INTO estadisticas_gato (jugador, victorias, empates, derrotas, puntos) VALUES (?, 0, 0, 0, 0)";
-        try (Connection conn = DriverManager.getConnection(DB_URL);
-             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+        try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setString(1, jugador);
             pstmt.executeUpdate();
-        } catch (SQLException e) {
-            System.err.println("Error inicializando estadísticas: " + e.getMessage());
         }
     }
     
     public HashMap<String, String> cargarTodosLosUsuarios() {
         HashMap<String, String> usuarios = new HashMap<>();
-        String sql = "SELECT nombre, password FROM usuarios";
-        try (Connection conn = DriverManager.getConnection(DB_URL);
-             Statement stmt = conn.createStatement();
-             ResultSet rs = stmt.executeQuery(sql)) {
-            
-            while (rs.next()) {
-                String nombre = rs.getString("nombre");
-                usuarios.put(nombre, rs.getString("password"));
+        String sqlSelect = "SELECT nombre, password FROM usuarios";
+        
+        try (Connection conn = DriverManager.getConnection(DB_URL)) {
+            // Primero cargar todos los usuarios
+            try (Statement stmt = conn.createStatement();
+                 ResultSet rs = stmt.executeQuery(sqlSelect)) {
                 
-                // Asegurar que existan estadísticas para usuarios antiguos
-                inicializarEstadisticas(nombre);
+                while (rs.next()) {
+                    String nombre = rs.getString("nombre");
+                    usuarios.put(nombre, rs.getString("password"));
+                }
             }
+            
+            // Luego inicializar estadísticas para todos en una sola transacción
+            conn.setAutoCommit(false);
+            try {
+                for (String nombre : usuarios.keySet()) {
+                    inicializarEstadisticasLote(conn, nombre);
+                }
+                conn.commit();
+            } catch (SQLException e) {
+                conn.rollback();
+                throw e;
+            }
+            
         } catch (SQLException e) {
             System.err.println("Error cargando usuarios: " + e.getMessage());
         }
