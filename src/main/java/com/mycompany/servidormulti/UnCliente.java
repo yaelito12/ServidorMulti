@@ -155,7 +155,7 @@ public class UnCliente implements Runnable {
         }
     }
     
-    
+  
     private void inicializarCliente() throws IOException {
         enviarMensajeBienvenida();
         nombreCliente = PREFIJO_INVITADO + System.currentTimeMillis();
@@ -205,9 +205,10 @@ public class UnCliente implements Runnable {
     }
     
     private void finalizarPartida(PartidaGato partida) {
+        String oponente = partida.getOponente(nombreCliente);
         partida.abandonar(nombreCliente);
         
-        
+     
         ServidorMulti.registrarResultadoPartida(partida.getJugador1(), partida.getJugador2(), oponente);
         
         notificarVictoriaPorDesconexion(partida);
@@ -648,7 +649,7 @@ public class UnCliente implements Runnable {
     private void procesarFinDePartida(PartidaGato partida, String oponente, UnCliente clienteOponente) throws IOException {
         String ganador = partida.getGanador();
         
-       
+     =
         ServidorMulti.registrarResultadoPartida(partida.getJugador1(), partida.getJugador2(), ganador);
         
         enviarResultadoPartida(ganador, oponente, clienteOponente);
@@ -707,7 +708,7 @@ public class UnCliente implements Runnable {
         String oponente = partida.getOponente(nombreCliente);
         partida.abandonar(nombreCliente);
         
-      
+       
         ServidorMulti.registrarResultadoPartida(partida.getJugador1(), partida.getJugador2(), oponente);
         
         salida.writeUTF("[GATO]: Te has rendido. " + oponente + " gana la partida.");
@@ -722,6 +723,29 @@ public class UnCliente implements Runnable {
         System.out.println(nombreCliente + " se rindió en la partida contra " + oponente);
     }
     
+  
+    private void mostrarRankingGeneral() throws IOException {
+        if (!verificarAutenticacion()) return;
+        
+        java.util.List<String> ranking = ServidorMulti.obtenerRankingGeneral();
+        
+        if (ranking.isEmpty()) {
+            salida.writeUTF("[SISTEMA]: Aún no hay partidas registradas.");
+            return;
+        }
+        
+        salida.writeUTF("");
+        salida.writeUTF("=== RANKING GENERAL DE JUGADORES ===");
+        salida.writeUTF("");
+        for (String linea : ranking) {
+            salida.writeUTF(linea);
+        }
+        salida.writeUTF("");
+        salida.writeUTF("Sistema de puntos: Victoria = 2 pts | Empate = 1 pt | Derrota = 0 pts");
+        salida.writeUTF("");
+    }
+    
+   
     // ==================== AYUDA ====================
     
     private void mostrarAyuda() throws IOException {
