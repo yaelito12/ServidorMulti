@@ -67,6 +67,8 @@ public class UnCliente implements Runnable {
         if (cmd.equals("rechazar")) return () -> { rechazarInvitacionGato(); return true; };
         if (cmd.equals("partidas")) return () -> { mostrarPartidasActivas(); return true; };
         if (cmd.equals("rendirse")) return () -> { rendirseEnPartida(); return true; };
+        if (cmd.equals("ranking")) return () -> { mostrarRankingGeneral(); return true; };
+        if (cmd.equals("vs") || cmd.equals("estadisticas")) return () -> { mostrarEstadisticasVs(); return true; };
         if (esMovimientoGato(mensaje)) return () -> { realizarMovimientoGato(esFormatoSimple(mensaje) ? "jugar " + mensaje : mensaje); return true; };
         
         return () -> false;
@@ -153,7 +155,6 @@ public class UnCliente implements Runnable {
         }
     }
     
-    // ==================== INICIALIZACIÓN ====================
     
     private void inicializarCliente() throws IOException {
         enviarMensajeBienvenida();
@@ -602,7 +603,7 @@ public class UnCliente implements Runnable {
     private int[] parsearCoordenadas(String comando) throws IOException {
         String[] partes = comando.split("\\s+");
         if (partes.length != 3) {
-              salida.writeUTF("[ERROR]: Formato incorrecto. Usa: jugar fila columna (ej: jugar 1 2)");
+            salida.writeUTF("[ERROR]: Formato incorrecto. Usa: jugar fila columna (ej: jugar 1 2)");
             return null;
         }
         
@@ -641,7 +642,7 @@ public class UnCliente implements Runnable {
     }
     
     private void procesarFinDePartida(PartidaGato partida, String oponente, UnCliente clienteOponente) throws IOException {
-        enviarResultadoPartida(partida.getGanador(), oponente, clienteOponente);
+        String ganador = partida.getGanador();
         
         salida.writeUTF("[SISTEMA]: Chat de partida desactivado. Tus mensajes ahora van a todos (excepto jugadores en partida).");
         Optional.ofNullable(clienteOponente)
