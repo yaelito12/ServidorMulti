@@ -155,7 +155,8 @@ public class UnCliente implements Runnable {
         }
     }
     
-  
+    // ==================== INICIALIZACIÓN ====================
+    
     private void inicializarCliente() throws IOException {
         enviarMensajeBienvenida();
         nombreCliente = PREFIJO_INVITADO + System.currentTimeMillis();
@@ -828,6 +829,8 @@ public class UnCliente implements Runnable {
         salida.writeUTF("desbloquear - Desbloquear usuario");
         salida.writeUTF("misBloqueados - Ver usuarios bloqueados");
         salida.writeUTF("gato - Jugar al gato");
+        salida.writeUTF("ranking - Ver ranking general de jugadores");
+        salida.writeUTF("vs - Ver estadísticas entre dos jugadores");
         salida.writeUTF("help - Mostrar esta ayuda");
     }
     
