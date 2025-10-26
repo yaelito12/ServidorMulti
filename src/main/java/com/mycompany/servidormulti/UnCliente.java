@@ -215,191 +215,183 @@ public class UnCliente implements Runnable {
     
     
     private void mostrarUsuariosYEnviarMensaje() throws IOException {
-        StringBuilder usuarios = new StringBuilder();
-        int contador = 0;
-        for (String usuario : ServidorMulti.clientes.keySet()) {
-            if (!usuario.equals(nombreCliente) && !usuario.startsWith(PREFIJO_INVITADO)) {
-                if (contador > 0) usuarios.append(", ");
-                usuarios.append(usuario);
-                contador++;
-            }
-        }
+        String usuariosOnline = obtenerUsuariosOnline();
+        if (validarUsuariosDisponibles(usuariosOnline, "No hay usuarios online.")) return;
         
-        if (contador == 0) {
-            salida.writeUTF("[SISTEMA]: No hay usuarios online.");
-            return;
-        }
-        
-        salida.writeUTF("[USUARIOS ONLINE]: " + usuarios.toString());
+        salida.writeUTF("[USUARIOS ONLINE]: " + usuariosOnline);
         salida.writeUTF("[SISTEMA]: Escribe: usuario mensaje");
         
-        String input = entrada.readUTF().trim();
-        String[] partes = input.split(" ", 2);
-        
+        String[] datosMensaje = leerDatosMensajePrivado();
+        if (datosMensaje != null) enviarMensajePrivado(datosMensaje[0], datosMensaje[1]);
+    }
+    
+    private String obtenerUsuariosOnline() {
+        return ServidorMulti.clientes.keySet().stream()
+            .filter(usuario -> !usuario.equals(nombreCliente) && !usuario.startsWith(PREFIJO_INVITADO))
+            .reduce((a, b) -> a + ", " + b)
+            .orElse("");
+    }
+    
+    private String[] leerDatosMensajePrivado() throws IOException {
+        String[] partes = entrada.readUTF().trim().split(" ", 2);
         if (partes.length < 2) {
             salida.writeUTF("[ERROR]: Formato incorrecto. Usa: usuario mensaje");
-            return;
+            return null;
         }
-        
-        String destino = partes[0];
-        String textoMensaje = partes[1];
-        
+        return partes;
+    }
+    
+    private void enviarMensajePrivado(String destino, String mensaje) throws IOException {
+        if (validarEnvioPrivado(destino)) {
+            Optional.ofNullable(ServidorMulti.clientes.get(destino))
+                .ifPresentOrElse(
+                    cliente -> {
+                        enviarSafe(cliente, "[PRIVADO de " + nombreCliente + "]: " + mensaje);
+                        enviarSafe(this, "[Mensaje privado enviado a " + destino + "]: " + mensaje);
+                        if (!autenticado) mensajesEnviados++;
+                    },
+                    () -> enviarSafe(this, "[AVISO]: " + destino + " no está conectado en este momento.")
+                );
+        }
+    }
+    
+    private boolean validarEnvioPrivado(String destino) throws IOException {
         if (!ServidorMulti.usuarios.containsKey(destino)) {
             salida.writeUTF("[ERROR]: Usuario '" + destino + "' no existe.");
-            return;
+            return false;
         }
-        
         if (!autenticado && mensajesEnviados >= MENSAJES_GRATUITOS) {
             salida.writeUTF("[ERROR]: Debes autenticarte para enviar mensajes privados.");
-            return;
+            return false;
         }
-        
         if (ServidorMulti.estasBloqueado(destino, nombreCliente)) {
             salida.writeUTF("[ERROR]: No puedes enviar mensajes a " + destino + " (bloqueado).");
-            return;
+            return false;
         }
-        
-        UnCliente clienteDestino = ServidorMulti.clientes.get(destino);
-        if (clienteDestino != null) {
-            clienteDestino.salida.writeUTF("[PRIVADO de " + nombreCliente + "]: " + textoMensaje);
-            salida.writeUTF("[Mensaje privado enviado a " + destino + "]: " + textoMensaje);
-            if (!autenticado) mensajesEnviados++;
-        } else {
-            salida.writeUTF("[AVISO]: " + destino + " no está conectado en este momento.");
-        }
+        return true;
     }
     
     
     private void mostrarUsuariosYBloquear() throws IOException {
-        if (!autenticado) {
-            salida.writeUTF("[ERROR]: Debes estar autenticado para bloquear usuarios.");
-            return;
-        }
+        if (!verificarAutenticacion()) return;
         
-        java.util.List<String> bloqueados = ServidorMulti.obtenerBloqueados(nombreCliente);
-        StringBuilder usuarios = new StringBuilder();
-        int contador = 0;
+        String usuariosDisponibles = obtenerUsuariosParaBloquear();
+        if (validarUsuariosDisponibles(usuariosDisponibles, "No hay usuarios disponibles para bloquear.")) return;
         
-        for (String usuario : ServidorMulti.usuarios.keySet()) {
-            if (!usuario.equals(nombreCliente) && !bloqueados.contains(usuario)) {
-                if (contador > 0) usuarios.append(", ");
-                String estado = ServidorMulti.clientes.containsKey(usuario) ? "[ON]" : "[OFF]";
-                usuarios.append(usuario).append(estado);
-                contador++;
-            }
-        }
-        
-        if (contador == 0) {
-            salida.writeUTF("[SISTEMA]: No hay usuarios disponibles para bloquear.");
-            return;
-        }
-        
-        salida.writeUTF("[USUARIOS]: " + usuarios.toString());
+        salida.writeUTF("[USUARIOS]: " + usuariosDisponibles);
         salida.writeUTF("[SISTEMA]: Escribe el nombre del usuario:");
         
         String usuarioABloquear = entrada.readUTF().trim();
-        
-        if (usuarioABloquear.isEmpty()) {
-            salida.writeUTF("[SISTEMA]: Operación cancelada.");
-            return;
-        }
-        
-        if (usuarioABloquear.equals(nombreCliente)) {
+        if (!usuarioABloquear.isEmpty()) bloquearUsuario(usuarioABloquear);
+        else salida.writeUTF("[SISTEMA]: Operación cancelada.");
+    }
+    
+    private String obtenerUsuariosParaBloquear() {
+        java.util.List<String> bloqueados = ServidorMulti.obtenerBloqueados(nombreCliente);
+        return ServidorMulti.usuarios.keySet().stream()
+            .filter(usuario -> !usuario.equals(nombreCliente) && !bloqueados.contains(usuario))
+            .map(usuario -> usuario + (ServidorMulti.clientes.containsKey(usuario) ? "[ON]" : "[OFF]"))
+            .reduce((a, b) -> a + ", " + b)
+            .orElse("");
+    }
+    
+    private void bloquearUsuario(String usuario) throws IOException {
+        if (usuario.equals(nombreCliente)) {
             salida.writeUTF("[ERROR]: No puedes bloquearte a ti mismo.");
             return;
         }
-        
-        if (!ServidorMulti.usuarios.containsKey(usuarioABloquear)) {
-            salida.writeUTF("[ERROR]: El usuario '" + usuarioABloquear + "' no existe.");
+        if (!ServidorMulti.usuarios.containsKey(usuario)) {
+            salida.writeUTF("[ERROR]: El usuario '" + usuario + "' no existe.");
+            return;
+        }
+        if (ServidorMulti.estasBloqueado(nombreCliente, usuario)) {
+            salida.writeUTF("[ERROR]: Ya tienes bloqueado a " + usuario + ".");
             return;
         }
         
-        if (ServidorMulti.estasBloqueado(nombreCliente, usuarioABloquear)) {
-            salida.writeUTF("[ERROR]: Ya tienes bloqueado a " + usuarioABloquear + ".");
-            return;
-        }
-        
-        if (ServidorMulti.bloquearUsuario(nombreCliente, usuarioABloquear)) {
-            salida.writeUTF("[SISTEMA]: ¡Usuario '" + usuarioABloquear + "' bloqueado correctamente!");
-            System.out.println(nombreCliente + " bloqueó a " + usuarioABloquear);
-        } else {
-            salida.writeUTF("[ERROR]: No se pudo bloquear al usuario. Intenta de nuevo.");
-        }
+        boolean exito = ServidorMulti.bloquearUsuario(nombreCliente, usuario);
+        String mensaje = exito 
+            ? "[SISTEMA]: ¡Usuario '" + usuario + "' bloqueado correctamente!"
+            : "[ERROR]: No se pudo bloquear al usuario. Intenta de nuevo.";
+        salida.writeUTF(mensaje);
+        if (exito) System.out.println(nombreCliente + " bloqueó a " + usuario);
     }
     
     private void mostrarBloqueadosYDesbloquear() throws IOException {
-        if (!autenticado) {
-            salida.writeUTF("[ERROR]: Debes estar autenticado para desbloquear usuarios.");
-            return;
-        }
+        if (!verificarAutenticacion()) return;
         
         java.util.List<String> bloqueados = ServidorMulti.obtenerBloqueados(nombreCliente);
-        
         if (bloqueados.isEmpty()) {
             salida.writeUTF("[SISTEMA]: No tienes usuarios bloqueados.");
             return;
         }
         
-        StringBuilder usuarios = new StringBuilder();
-        for (int i = 0; i < bloqueados.size(); i++) {
-            if (i > 0) usuarios.append(", ");
-            String estado = ServidorMulti.clientes.containsKey(bloqueados.get(i)) ? "[ON]" : "[OFF]";
-            usuarios.append(bloqueados.get(i)).append(estado);
-        }
-        
-        salida.writeUTF("[BLOQUEADOS]: " + usuarios.toString());
+        salida.writeUTF("[BLOQUEADOS]: " + formatearListaUsuarios(bloqueados));
         salida.writeUTF("[SISTEMA]: Escribe el nombre del usuario:");
         
         String usuarioADesbloquear = entrada.readUTF().trim();
-        
-        if (usuarioADesbloquear.isEmpty()) {
-            salida.writeUTF("[SISTEMA]: Operación cancelada.");
+        if (!usuarioADesbloquear.isEmpty()) desbloquearUsuario(usuarioADesbloquear);
+        else salida.writeUTF("[SISTEMA]: Operación cancelada.");
+    }
+    
+    private void desbloquearUsuario(String usuario) throws IOException {
+        if (!ServidorMulti.usuarios.containsKey(usuario)) {
+            salida.writeUTF("[ERROR]: El usuario '" + usuario + "' no existe.");
+            return;
+        }
+        if (!ServidorMulti.estasBloqueado(nombreCliente, usuario)) {
+            salida.writeUTF("[ERROR]: No tienes bloqueado a " + usuario + ".");
             return;
         }
         
-        if (!ServidorMulti.usuarios.containsKey(usuarioADesbloquear)) {
-            salida.writeUTF("[ERROR]: El usuario '" + usuarioADesbloquear + "' no existe.");
-            return;
-        }
-        
-        if (!ServidorMulti.estasBloqueado(nombreCliente, usuarioADesbloquear)) {
-            salida.writeUTF("[ERROR]: No tienes bloqueado a " + usuarioADesbloquear + ".");
-            return;
-        }
-        
-        if (ServidorMulti.desbloquearUsuario(nombreCliente, usuarioADesbloquear)) {
-            salida.writeUTF("[SISTEMA]: ¡Usuario '" + usuarioADesbloquear + "' desbloqueado correctamente!");
-            System.out.println(nombreCliente + " desbloqueó a " + usuarioADesbloquear);
-        } else {
-            salida.writeUTF("[ERROR]: No se pudo desbloquear al usuario. Intenta de nuevo.");
-        }
+        boolean exito = ServidorMulti.desbloquearUsuario(nombreCliente, usuario);
+        String mensaje = exito
+            ? "[SISTEMA]: ¡Usuario '" + usuario + "' desbloqueado correctamente!"
+            : "[ERROR]: No se pudo desbloquear al usuario. Intenta de nuevo.";
+        salida.writeUTF(mensaje);
+        if (exito) System.out.println(nombreCliente + " desbloqueó a " + usuario);
     }
     
     private void mostrarMisBloqueados() throws IOException {
-        if (!autenticado) {
-            salida.writeUTF("[ERROR]: Debes estar autenticado para ver tu lista de bloqueados.");
+        if (!verificarAutenticacion()) return;
+        
+        java.util.List<String> bloqueados = ServidorMulti.obtenerBloqueados(nombreCliente);
+        if (bloqueados.isEmpty()) {
+            salida.writeUTF("[SISTEMA]: No tienes usuarios bloqueados.");
             return;
         }
         
-        java.util.List<String> bloqueados = ServidorMulti.obtenerBloqueados(nombreCliente);
-        
-        if (bloqueados.isEmpty()) {
-            salida.writeUTF("[SISTEMA]: No tienes usuarios bloqueados.");
-        } else {
-            salida.writeUTF("[SISTEMA]: === USUARIOS BLOQUEADOS ===");
-            for (int i = 0; i < bloqueados.size(); i++) {
-                salida.writeUTF((i + 1) + ". " + bloqueados.get(i));
-            }
-            salida.writeUTF("[SISTEMA]: Total: " + bloqueados.size() + " usuario(s) bloqueado(s)");
+        salida.writeUTF("[SISTEMA]: === USUARIOS BLOQUEADOS ===");
+        for (int i = 0; i < bloqueados.size(); i++) {
+            salida.writeUTF((i + 1) + ". " + bloqueados.get(i));
         }
+        salida.writeUTF("[SISTEMA]: Total: " + bloqueados.size() + " usuario(s) bloqueado(s)");
+    }
+    
+    private String formatearListaUsuarios(java.util.List<String> usuarios) {
+        return usuarios.stream()
+            .map(u -> u + (ServidorMulti.clientes.containsKey(u) ? "[ON]" : "[OFF]"))
+            .reduce((a, b) -> a + ", " + b)
+            .orElse("");
+    }
+    
+    
+    private boolean verificarAutenticacion() throws IOException {
+        if (!autenticado) salida.writeUTF("[ERROR]: Debes estar autenticado para usar este comando.");
+        return autenticado;
+    }
+    
+    private boolean validarUsuariosDisponibles(String usuarios, String mensajeError) throws IOException {
+        if (usuarios.isEmpty()) {
+            salida.writeUTF("[SISTEMA]: " + mensajeError);
+            return true;
+        }
+        return false;
     }
     
     
     private void invitarAJugarGato() throws IOException {
-        if (!autenticado) {
-            salida.writeUTF("[ERROR]: Debes estar autenticado para jugar.");
-            return;
-        }
+        if (!verificarAutenticacion()) return;
         
         if (ServidorMulti.tienePartidaActiva(nombreCliente)) {
             salida.writeUTF("[ERROR]: Ya tienes una partida activa. Solo puedes jugar una partida a la vez.");
@@ -410,72 +402,60 @@ public class UnCliente implements Runnable {
         mostrarAyudaGato();
         salida.writeUTF("");
         
-        StringBuilder usuarios = new StringBuilder();
-        int contador = 0;
+        String usuariosDisponibles = obtenerUsuariosParaJugar();
+        if (validarUsuariosDisponibles(usuariosDisponibles, "No hay usuarios disponibles para jugar.")) return;
         
-        for (String usuario : ServidorMulti.clientes.keySet()) {
-            if (!usuario.equals(nombreCliente) && !usuario.startsWith(PREFIJO_INVITADO)) {
-                boolean tienePartida = ServidorMulti.tienePartidaActiva(usuario);
-                if (contador > 0) usuarios.append(", ");
-                usuarios.append(usuario);
-                if (tienePartida) usuarios.append("[OCUPADO]");
-                contador++;
-            }
-        }
-        
-        if (contador == 0) {
-            salida.writeUTF("[SISTEMA]: No hay usuarios disponibles para jugar.");
-            return;
-        }
-        
-        salida.writeUTF("[USUARIOS ONLINE]: " + usuarios.toString());
+        salida.writeUTF("[USUARIOS ONLINE]: " + usuariosDisponibles);
         salida.writeUTF("[SISTEMA]: Escribe el nombre del usuario:");
         
         String invitado = entrada.readUTF().trim();
+        if (!invitado.isEmpty()) enviarInvitacionJuego(invitado);
+        else salida.writeUTF("[SISTEMA]: Operación cancelada.");
+    }
+    
+    private String obtenerUsuariosParaJugar() {
+        return ServidorMulti.clientes.keySet().stream()
+            .filter(usuario -> !usuario.equals(nombreCliente) && !usuario.startsWith(PREFIJO_INVITADO))
+            .map(usuario -> usuario + (ServidorMulti.tienePartidaActiva(usuario) ? "[OCUPADO]" : ""))
+            .reduce((a, b) -> a + ", " + b)
+            .orElse("");
+    }
+    
+    private void enviarInvitacionJuego(String invitado) throws IOException {
+        if (!validarInvitacionJuego(invitado)) return;
         
-        if (invitado.isEmpty()) {
-            salida.writeUTF("[SISTEMA]: Operación cancelada.");
-            return;
-        }
-        
-        if (invitado.equals(nombreCliente)) {
-            salida.writeUTF("[ERROR]: No puedes jugar contigo mismo.");
-            return;
-        }
-        
-        if (!ServidorMulti.clientes.containsKey(invitado)) {
-            salida.writeUTF("[ERROR]: El usuario no está conectado.");
-            return;
-        }
-      
-        if (ServidorMulti.tienePartidaActiva(invitado)) {
-            salida.writeUTF("[ERROR]: " + invitado + " ya está jugando una partida.");
-            return;
-        }
-        
-        if (ServidorMulti.obtenerPartida(nombreCliente, invitado) != null) {
-            salida.writeUTF("[ERROR]: Ya tienes una partida activa con " + invitado + ".");
-            return;
-        }
-        
-        if (!ServidorMulti.enviarInvitacionGato(nombreCliente, invitado)) {
-            salida.writeUTF("[ERROR]: " + invitado + " ya tiene una invitación pendiente.");
-            return;
-        }
-        
-        UnCliente clienteInvitado = ServidorMulti.clientes.get(invitado);
-        if (clienteInvitado != null) {
-            clienteInvitado.salida.writeUTF("[GATO]: " + nombreCliente + " te invita a jugar. Escribe 'aceptar' o 'rechazar'.");
+        if (ServidorMulti.enviarInvitacionGato(nombreCliente, invitado)) {
+            Optional.ofNullable(ServidorMulti.clientes.get(invitado))
+                .ifPresent(cliente -> enviarSafe(cliente, "[GATO]: " + nombreCliente + " te invita a jugar. Escribe 'aceptar' o 'rechazar'."));
             salida.writeUTF("[SISTEMA]: Invitación enviada a " + invitado + ".");
             System.out.println(nombreCliente + " invitó a jugar a " + invitado);
+        } else {
+            salida.writeUTF("[ERROR]: " + invitado + " ya tiene una invitación pendiente.");
         }
     }
     
-    private void aceptarInvitacionGato() throws IOException {
-        if (!autenticado) {
-            salida.writeUTF("[ERROR]: Debes estar autenticado.");
-            return;
+    private boolean validarInvitacionJuego(String invitado) throws IOException {
+        if (invitado.equals(nombreCliente)) {
+            salida.writeUTF("[ERROR]: No puedes jugar contigo mismo.");
+            return false;
         }
+        if (!ServidorMulti.clientes.containsKey(invitado)) {
+            salida.writeUTF("[ERROR]: El usuario no está conectado.");
+            return false;
+        }
+        if (ServidorMulti.tienePartidaActiva(invitado)) {
+            salida.writeUTF("[ERROR]: " + invitado + " ya está jugando una partida.");
+            return false;
+        }
+        if (ServidorMulti.obtenerPartida(nombreCliente, invitado) != null) {
+            salida.writeUTF("[ERROR]: Ya tienes una partida activa con " + invitado + ".");
+            return false;
+        }
+        return true;
+    }
+    
+    private void aceptarInvitacionGato() throws IOException {
+        if (!verificarAutenticacion()) return;
         
         if (ServidorMulti.tienePartidaActiva(nombreCliente)) {
             salida.writeUTF("[ERROR]: Ya tienes una partida activa. Solo puedes jugar una partida a la vez.");
@@ -565,10 +545,7 @@ public class UnCliente implements Runnable {
     }
     
     private void rechazarInvitacionGato() throws IOException {
-        if (!autenticado) {
-            salida.writeUTF("[ERROR]: Debes estar autenticado.");
-            return;
-        }
+        if (!verificarAutenticacion()) return;
         
         String invitador = ServidorMulti.obtenerInvitador(nombreCliente);
         if (invitador == null) {
@@ -579,29 +556,24 @@ public class UnCliente implements Runnable {
         ServidorMulti.eliminarInvitacion(nombreCliente);
         salida.writeUTF("[SISTEMA]: Invitación rechazada.");
         
-        UnCliente clienteInvitador = ServidorMulti.clientes.get(invitador);
-        if (clienteInvitador != null) {
-            clienteInvitador.salida.writeUTF("[GATO]: " + nombreCliente + " rechazó tu invitación.");
-        }
+        Optional.ofNullable(ServidorMulti.clientes.get(invitador))
+            .ifPresent(cliente -> enviarSafe(cliente, "[GATO]: " + nombreCliente + " rechazó tu invitación."));
     }
     
     private void mostrarPartidasActivas() throws IOException {
-        if (!autenticado) {
-            salida.writeUTF("[ERROR]: Debes estar autenticado.");
-            return;
-        }
+        if (!verificarAutenticacion()) return;
         
         java.util.List<PartidaGato> partidas = ServidorMulti.obtenerPartidasDeJugador(nombreCliente);
         
         if (partidas.isEmpty()) {
             salida.writeUTF("[SISTEMA]: No tienes partidas activas.");
         } else {
-            salida.writeUTF("[SISTEMA]: === TUS PARTIDAS ===");
+                salida.writeUTF("[SISTEMA]: === TUS PARTIDAS ===");
             for (int i = 0; i < partidas.size(); i++) {
                 PartidaGato p = partidas.get(i);
                 String oponente = p.getOponente(nombreCliente);
                 String estado = p.isTerminado() ? "TERMINADA" : "EN CURSO";
-               String turno = p.isTerminado() ? "" : " - Turno de: " + p.getTurnoActual();
+                String turno = p.isTerminado() ? "" : " - Turno de: " + p.getTurnoActual();
                 salida.writeUTF((i + 1) + ". vs " + oponente + " [" + estado + "]" + turno);
                 salida.writeUTF(p.obtenerTableroTexto());
             }
@@ -609,10 +581,7 @@ public class UnCliente implements Runnable {
     }
     
     private void realizarMovimientoGato(String comando) throws IOException {
-        if (!autenticado) {
-            salida.writeUTF("[ERROR]: Debes estar autenticado.");
-            return;
-        }
+        if (!verificarAutenticacion()) return;
         
         String[] partes = comando.split("\\s+");
         if (partes.length != 3) {
@@ -697,10 +666,7 @@ public class UnCliente implements Runnable {
     }
     
     private void rendirseEnPartida() throws IOException {
-        if (!autenticado) {
-            salida.writeUTF("[ERROR]: Debes estar autenticado.");
-            return;
-        }
+        if (!verificarAutenticacion()) return;
         
         java.util.List<PartidaGato> partidas = ServidorMulti.obtenerPartidasDeJugador(nombreCliente);
         PartidaGato partidaActual = null;
