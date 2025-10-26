@@ -601,7 +601,7 @@ public class UnCliente implements Runnable {
                 PartidaGato p = partidas.get(i);
                 String oponente = p.getOponente(nombreCliente);
                 String estado = p.isTerminado() ? "TERMINADA" : "EN CURSO";
-                  String turno = p.isTerminado() ? "" : " - Turno de: " + p.getTurnoActual();
+               String turno = p.isTerminado() ? "" : " - Turno de: " + p.getTurnoActual();
                 salida.writeUTF((i + 1) + ". vs " + oponente + " [" + estado + "]" + turno);
                 salida.writeUTF(p.obtenerTableroTexto());
             }
