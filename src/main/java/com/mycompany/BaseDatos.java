@@ -128,6 +128,123 @@ public class BaseDatos {
         return usuarios;
     }
     
+    public synchronized void registrarResultadoPartida(String jugador1, String jugador2, String ganador) {
+        try (Connection conn = DriverManager.getConnection(DB_URL)) {
+            conn.setAutoCommit(false);
+            
+            try {
+                // Registrar en historial
+                String sqlHistorial = "INSERT INTO historial_partidas (jugador1, jugador2, ganador) VALUES (?, ?, ?)";
+                try (PreparedStatement pstmt = conn.prepareStatement(sqlHistorial)) {
+                    pstmt.setString(1, jugador1);
+                    pstmt.setString(2, jugador2);
+                    pstmt.setString(3, ganador);
+                    pstmt.executeUpdate();
+                }
+                
+                // Actualizar estadísticas
+                if ("EMPATE".equals(ganador)) {
+                    actualizarEstadistica(conn, jugador1, 0, 1, 0);
+                    actualizarEstadistica(conn, jugador2, 0, 1, 0);
+                } else {
+                    String perdedor = ganador.equals(jugador1) ? jugador2 : jugador1;
+                    actualizarEstadistica(conn, ganador, 1, 0, 0);
+                    actualizarEstadistica(conn, perdedor, 0, 0, 1);
+                }
+                
+                conn.commit();
+                System.out.println("Resultado registrado: " + jugador1 + " vs " + jugador2 + " - Ganador: " + ganador);
+            } catch (SQLException e) {
+                conn.rollback();
+                throw e;
+            }
+        } catch (SQLException e) {
+            System.err.println("Error registrando resultado: " + e.getMessage());
+        }
+    }
+    
+    private void actualizarEstadistica(Connection conn, String jugador, int victorias, int empates, int derrotas) throws SQLException {
+        int puntos = (victorias * 2) + empates;
+        String sql = "UPDATE estadisticas_gato SET victorias = victorias + ?, empates = empates + ?, " +
+                     "derrotas = derrotas + ?, puntos = puntos + ? WHERE jugador = ?";
+        try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setInt(1, victorias);
+            pstmt.setInt(2, empates);
+            pstmt.setInt(3, derrotas);
+            pstmt.setInt(4, puntos);
+            pstmt.setString(5, jugador);
+            pstmt.executeUpdate();
+        }
+    }
+    
+    public List<String> obtenerRankingGeneral() {
+        List<String> ranking = new ArrayList<>();
+        String sql = "SELECT jugador, victorias, empates, derrotas, puntos, " +
+                     "(victorias + empates + derrotas) as partidas_totales " +
+                     "FROM estadisticas_gato WHERE partidas_totales > 0 " +
+                     "ORDER BY puntos DESC, victorias DESC, jugador ASC";
+        
+        try (Connection conn = DriverManager.getConnection(DB_URL);
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            
+            int posicion = 1;
+            while (rs.next()) {
+                String jugador = rs.getString("jugador");
+                int victorias = rs.getInt("victorias");
+                int empates = rs.getInt("empates");
+                int derrotas = rs.getInt("derrotas");
+                int puntos = rs.getInt("puntos");
+                int partidas = rs.getInt("partidas_totales");
+                
+                String linea = String.format("%d. %s - %d pts (%dV/%dE/%dD) - %d partidas",
+                        posicion, jugador, puntos, victorias, empates, derrotas, partidas);
+                ranking.add(linea);
+                posicion++;
+            }
+        } catch (SQLException e) {
+            System.err.println("Error obteniendo ranking: " + e.getMessage());
+        }
+        
+        return ranking;
+    }
+    
+    public EstadisticasEnfrentamiento obtenerEstadisticasEnfrentamiento(String jugador1, String jugador2) {
+        EstadisticasEnfrentamiento stats = new EstadisticasEnfrentamiento();
+        stats.jugador1 = jugador1;
+        stats.jugador2 = jugador2;
+        
+        String sql = "SELECT ganador FROM historial_partidas " +
+                     "WHERE (jugador1 = ? AND jugador2 = ?) OR (jugador1 = ? AND jugador2 = ?)";
+        
+        try (Connection conn = DriverManager.getConnection(DB_URL);
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setString(1, jugador1);
+            pstmt.setString(2, jugador2);
+            pstmt.setString(3, jugador2);
+            pstmt.setString(4, jugador1);
+            
+            ResultSet rs = pstmt.executeQuery();
+            
+            while (rs.next()) {
+                String ganador = rs.getString("ganador");
+                if ("EMPATE".equals(ganador)) {
+                    stats.empates++;
+                } else if (jugador1.equals(ganador)) {
+                    stats.victoriasJ1++;
+                } else if (jugador2.equals(ganador)) {
+                    stats.victoriasJ2++;
+                }
+            }
+            
+            stats.calcularPorcentajes();
+        } catch (SQLException e) {
+            System.err.println("Error obteniendo estadísticas de enfrentamiento: " + e.getMessage());
+        }
+        
+        return stats;
+    }
+    
     public synchronized boolean bloquearUsuario(String usuarioActual, String usuarioABloquear) {
         if (estaBloqueado(usuarioActual, usuarioABloquear)) {
             return false;
@@ -199,4 +316,28 @@ public class BaseDatos {
         }
         return bloqueados;
     }
+    
+    // Clase interna para estadísticas de enfrentamiento
+    public static class EstadisticasEnfrentamiento {
+        public String jugador1;
+        public String jugador2;
+        public int victoriasJ1;
+        public int victoriasJ2;
+        public int empates;
+        public double porcentajeJ1;
+        public double porcentajeJ2;
+        public int totalPartidas;
+        
+        public void calcularPorcentajes() {
+            totalPartidas = victoriasJ1 + victoriasJ2 + empates;
+            if (totalPartidas > 0) {
+                porcentajeJ1 = (victoriasJ1 * 100.0) / totalPartidas;
+                porcentajeJ2 = (victoriasJ2 * 100.0) / totalPartidas;
+            } else {
+                porcentajeJ1 = 0;
+                porcentajeJ2 = 0;
             }
+        }
+    }
+}
+            
