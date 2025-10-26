@@ -29,6 +29,27 @@ public class BaseDatos {
                     "FOREIGN KEY(usuario_que_bloquea) REFERENCES usuarios(nombre)," +
                     "FOREIGN KEY(usuario_bloqueado) REFERENCES usuarios(nombre))");
             
+            // Tabla de estadísticas de juego
+            stmt.execute("CREATE TABLE IF NOT EXISTS estadisticas_gato (" +
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT," +
+                    "jugador TEXT NOT NULL," +
+                    "victorias INTEGER DEFAULT 0," +
+                    "empates INTEGER DEFAULT 0," +
+                    "derrotas INTEGER DEFAULT 0," +
+                    "puntos INTEGER DEFAULT 0," +
+                    "UNIQUE(jugador)," +
+                    "FOREIGN KEY(jugador) REFERENCES usuarios(nombre))");
+            
+            // Tabla de historial de partidas entre jugadores
+            stmt.execute("CREATE TABLE IF NOT EXISTS historial_partidas (" +
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT," +
+                    "jugador1 TEXT NOT NULL," +
+                    "jugador2 TEXT NOT NULL," +
+                    "ganador TEXT," +
+                    "fecha_partida TIMESTAMP DEFAULT CURRENT_TIMESTAMP," +
+                    "FOREIGN KEY(jugador1) REFERENCES usuarios(nombre)," +
+                    "FOREIGN KEY(jugador2) REFERENCES usuarios(nombre))");
+            
             System.out.println("Base de datos inicializada correctamente");
         } catch (SQLException e) {
             System.err.println("Error inicializando BD: " + e.getMessage());
@@ -42,8 +63,21 @@ public class BaseDatos {
             pstmt.setString(1, nombre);
             pstmt.setString(2, password);
             pstmt.executeUpdate();
+         
+            inicializarEstadisticas(nombre);
         } catch (SQLException e) {
             System.err.println("Error guardando usuario: " + e.getMessage());
+        }
+    }
+    
+    private void inicializarEstadisticas(String jugador) {
+        String sql = "INSERT OR IGNORE INTO estadisticas_gato (jugador, victorias, empates, derrotas, puntos) VALUES (?, 0, 0, 0, 0)";
+        try (Connection conn = DriverManager.getConnection(DB_URL);
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setString(1, jugador);
+            pstmt.executeUpdate();
+        } catch (SQLException e) {
+            System.err.println("Error inicializando estadísticas: " + e.getMessage());
         }
     }
     
@@ -55,7 +89,11 @@ public class BaseDatos {
              ResultSet rs = stmt.executeQuery(sql)) {
             
             while (rs.next()) {
-                usuarios.put(rs.getString("nombre"), rs.getString("password"));
+                String nombre = rs.getString("nombre");
+                usuarios.put(nombre, rs.getString("password"));
+                
+                // Asegurar que existan estadísticas para usuarios antiguos
+                inicializarEstadisticas(nombre);
             }
         } catch (SQLException e) {
             System.err.println("Error cargando usuarios: " + e.getMessage());
@@ -65,7 +103,7 @@ public class BaseDatos {
     
     public synchronized boolean bloquearUsuario(String usuarioActual, String usuarioABloquear) {
         if (estaBloqueado(usuarioActual, usuarioABloquear)) {
-            return false; // Ya está bloqueado
+            return false;
         }
         
         String sql = "INSERT INTO bloqueados (usuario_que_bloquea, usuario_bloqueado) VALUES (?, ?)";
@@ -84,7 +122,7 @@ public class BaseDatos {
     
     public synchronized boolean desbloquearUsuario(String usuarioActual, String usuarioADesbloquear) {
         if (!estaBloqueado(usuarioActual, usuarioADesbloquear)) {
-            return false; // No está bloqueado
+            return false;
         }
         
         String sql = "DELETE FROM bloqueados WHERE usuario_que_bloquea = ? AND usuario_bloqueado = ?";
@@ -134,4 +172,4 @@ public class BaseDatos {
         }
         return bloqueados;
     }
-}
+            }
