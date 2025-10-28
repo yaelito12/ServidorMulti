@@ -50,6 +50,16 @@ public class BaseDatos {
                     "FOREIGN KEY(jugador1) REFERENCES usuarios(nombre)," +
                     "FOREIGN KEY(jugador2) REFERENCES usuarios(nombre))");
             
+            // Tabla de grupos
+            stmt.execute("CREATE TABLE IF NOT EXISTS grupos (" +
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT," +
+                    "nombre TEXT UNIQUE NOT NULL," +
+                    "creador TEXT NOT NULL," +
+                    "fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP," +
+                    "es_sistema INTEGER DEFAULT 0," +
+                    "FOREIGN KEY(creador) REFERENCES usuarios(nombre))");
+            
+           
             System.out.println("Base de datos inicializada correctamente");
         } catch (SQLException e) {
             System.err.println("Error inicializando BD: " + e.getMessage());
@@ -317,7 +327,6 @@ public class BaseDatos {
         return bloqueados;
     }
     
-    // Clase interna para estadísticas de enfrentamiento
     public static class EstadisticasEnfrentamiento {
         public String jugador1;
         public String jugador2;
@@ -340,4 +349,3 @@ public class BaseDatos {
         }
     }
 }
-            
