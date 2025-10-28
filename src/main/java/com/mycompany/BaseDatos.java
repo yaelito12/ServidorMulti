@@ -59,7 +59,16 @@ public class BaseDatos {
                     "es_sistema INTEGER DEFAULT 0," +
                     "FOREIGN KEY(creador) REFERENCES usuarios(nombre))");
             
-           
+            // Tabla de miembros de grupos
+            stmt.execute("CREATE TABLE IF NOT EXISTS miembros_grupo (" +
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT," +
+                    "grupo TEXT NOT NULL," +
+                    "usuario TEXT NOT NULL," +
+                    "fecha_union TIMESTAMP DEFAULT CURRENT_TIMESTAMP," +
+                    "UNIQUE(grupo, usuario)," +
+                    "FOREIGN KEY(grupo) REFERENCES grupos(nombre)," +
+                    "FOREIGN KEY(usuario) REFERENCES usuarios(nombre))");
+            
             System.out.println("Base de datos inicializada correctamente");
         } catch (SQLException e) {
             System.err.println("Error inicializando BD: " + e.getMessage());
