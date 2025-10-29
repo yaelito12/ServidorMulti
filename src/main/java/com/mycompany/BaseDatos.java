@@ -69,6 +69,30 @@ public class BaseDatos {
                     "FOREIGN KEY(grupo) REFERENCES grupos(nombre)," +
                     "FOREIGN KEY(usuario) REFERENCES usuarios(nombre))");
             
+            // Tabla de mensajes de grupo
+            stmt.execute("CREATE TABLE IF NOT EXISTS mensajes_grupo (" +
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT," +
+                    "grupo TEXT NOT NULL," +
+                    "usuario TEXT NOT NULL," +
+                    "mensaje TEXT NOT NULL," +
+                    "fecha_envio TIMESTAMP DEFAULT CURRENT_TIMESTAMP," +
+                    "FOREIGN KEY(grupo) REFERENCES grupos(nombre)," +
+                    "FOREIGN KEY(usuario) REFERENCES usuarios(nombre))");
+            
+            // Tabla de mensajes leídos
+            stmt.execute("CREATE TABLE IF NOT EXISTS mensajes_leidos (" +
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT," +
+                    "usuario TEXT NOT NULL," +
+                    "grupo TEXT NOT NULL," +
+                    "ultimo_mensaje_id INTEGER NOT NULL," +
+                    "fecha_lectura TIMESTAMP DEFAULT CURRENT_TIMESTAMP," +
+                    "UNIQUE(usuario, grupo)," +
+                    "FOREIGN KEY(usuario) REFERENCES usuarios(nombre)," +
+                    "FOREIGN KEY(grupo) REFERENCES grupos(nombre))");
+            
+            // Crear grupo "Todos" si no existe
+            stmt.execute("INSERT OR IGNORE INTO grupos (nombre, creador, es_sistema) VALUES ('Todos', 'SISTEMA', 1)");
+            
             System.out.println("Base de datos inicializada correctamente");
         } catch (SQLException e) {
             System.err.println("Error inicializando BD: " + e.getMessage());
