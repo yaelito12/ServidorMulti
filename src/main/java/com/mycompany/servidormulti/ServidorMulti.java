@@ -26,6 +26,7 @@ public class ServidorMulti {
             System.out.println("Sistema de bloqueo activado");
             System.out.println("Sistema de juego Gato activado");
             System.out.println("Sistema de ranking activado");
+            System.out.println("Sistema de grupos activado");
             System.out.println("Usuarios cargados: " + usuarios.size());
             
             while (true) {
@@ -87,6 +88,58 @@ public class ServidorMulti {
         System.out.println("Usuarios cargados de la BD: " + usuarios.size());
     }
     
+   
+    public static boolean crearGrupo(String nombreGrupo, String creador) {
+        return bd.crearGrupo(nombreGrupo, creador);
+    }
+    
+    public static boolean eliminarGrupo(String nombreGrupo) {
+        return bd.eliminarGrupo(nombreGrupo);
+    }
+    
+    public static boolean unirseAGrupo(String usuario, String nombreGrupo) {
+        return bd.unirseAGrupo(usuario, nombreGrupo);
+    }
+    
+    public static boolean salirDeGrupo(String usuario, String nombreGrupo) {
+        return bd.salirDeGrupo(usuario, nombreGrupo);
+    }
+    
+    public static boolean existeGrupo(String nombreGrupo) {
+        return bd.existeGrupo(nombreGrupo);
+    }
+    
+    public static boolean esMiembroDeGrupo(String usuario, String nombreGrupo) {
+        return bd.esMiembroDeGrupo(usuario, nombreGrupo);
+    }
+    
+    public static java.util.List<String> obtenerGruposDisponibles() {
+        return bd.obtenerGruposDisponibles();
+    }
+    
+    public static java.util.List<String> obtenerMisGrupos(String usuario) {
+        return bd.obtenerMisGrupos(usuario);
+    }
+    
+    public static java.util.List<String> obtenerMiembrosGrupo(String nombreGrupo) {
+        return bd.obtenerMiembrosGrupo(nombreGrupo);
+    }
+    
+    public static long guardarMensajeGrupo(String nombreGrupo, String remitente, String mensaje) {
+        return bd.guardarMensajeGrupo(nombreGrupo, remitente, mensaje);
+    }
+    
+    public static void actualizarUltimoMensajeLeido(String usuario, String nombreGrupo, long idMensaje) {
+        bd.actualizarUltimoMensajeLeido(usuario, nombreGrupo, idMensaje);
+    }
+    
+    public static java.util.List<BaseDatos.MensajeGrupo> obtenerMensajesNoLeidos(String usuario, String nombreGrupo) {
+        return bd.obtenerMensajesNoLeidos(usuario, nombreGrupo);
+    }
+    
+    public static int contarMensajesNoLeidos(String usuario, String nombreGrupo) {
+        return bd.contarMensajesNoLeidos(usuario, nombreGrupo);
+    }
     
     public static synchronized boolean enviarInvitacionGato(String invitador, String invitado) {
         String claveInvitacion = invitado + "_invitacion";
@@ -161,8 +214,7 @@ public class ServidorMulti {
         }
         return partidas;
     }
-    
-    
+  
     public static void registrarResultadoPartida(String jugador1, String jugador2, String ganador) {
         bd.registrarResultadoPartida(jugador1, jugador2, ganador);
     }

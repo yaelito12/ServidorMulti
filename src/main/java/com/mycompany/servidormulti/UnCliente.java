@@ -3,10 +3,12 @@ package com.mycompany.servidormulti;
 import java.io.*;
 import java.net.Socket;
 import java.util.Optional;
+import java.util.List;
 
 public class UnCliente implements Runnable {
     private static final int MENSAJES_GRATUITOS = 3;
     private static final String PREFIJO_INVITADO = "invitado_";
+    private static final String GRUPO_PREDETERMINADO = "Todos";
     
     private final DataOutputStream salida;
     private final DataInputStream entrada;
@@ -14,6 +16,7 @@ public class UnCliente implements Runnable {
     private String nombreCliente;
     private boolean autenticado;
     private int mensajesEnviados;
+    private String grupoActual;
 
     public UnCliente(Socket socket) throws IOException {
         this.socket = socket;
@@ -22,6 +25,7 @@ public class UnCliente implements Runnable {
         this.nombreCliente = null;
         this.autenticado = false;
         this.mensajesEnviados = 0;
+        this.grupoActual = GRUPO_PREDETERMINADO;
     }
 
     @Override
@@ -92,12 +96,11 @@ public class UnCliente implements Runnable {
     }
     
     private void procesarMensajeRegular(String mensaje) throws IOException {
-        System.out.println("[" + nombreCliente + "]: " + mensaje);
         actualizarContadorMensajes();
         
         obtenerPartidaActiva()
             .map(partida -> { enviarMensajeEnPartidaSafe(mensaje, partida); return true; })
-            .orElseGet(() -> { enviarMensajeGeneralSafe(mensaje); return true; });
+                
     }
     
     private void actualizarContadorMensajes() throws IOException {
@@ -132,20 +135,6 @@ public class UnCliente implements Runnable {
         salida.writeUTF("[CHAT-PARTIDA] Tú: " + mensaje);
     }
     
-    private void enviarMensajeGeneralSafe(String mensaje) {
-        try {
-            enviarMensajeGeneral(mensaje);
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-    }
-    
-    private void enviarMensajeGeneral(String mensaje) throws IOException {
-        String mensajeCompleto = "[" + nombreCliente + "]: " + mensaje;
-        ServidorMulti.clientes.values().stream()
-            .filter(cliente -> cliente != this && !estaEnPartidaActiva(cliente.nombreCliente))
-            .forEach(cliente -> enviarSafe(cliente, mensajeCompleto));
-    }
     
     private void enviarSafe(UnCliente cliente, String mensaje) {
         try {
@@ -169,6 +158,7 @@ public class UnCliente implements Runnable {
         salida.writeUTF("Escribe 'registrar' o 'login' cuando quieras autenticarte.");
         salida.writeUTF("Escribe 'logout' para cerrar sesión.");
         salida.writeUTF("Escribe 'help' para ver todos los comandos disponibles.");
+        salida.writeUTF("Estás en el grupo: " + GRUPO_PREDETERMINADO);
     }
    
     private boolean estaEnPartidaActiva(String nombreJugador) {
@@ -209,7 +199,6 @@ public class UnCliente implements Runnable {
         String oponente = partida.getOponente(nombreCliente);
         partida.abandonar(nombreCliente);
         
-    
         ServidorMulti.registrarResultadoPartida(partida.getJugador1(), partida.getJugador2(), oponente);
         
         notificarVictoriaPorDesconexion(partida);
@@ -520,8 +509,6 @@ public class UnCliente implements Runnable {
         salida.writeUTF("");
         salida.writeUTF("=== CHAT DE PARTIDA ACTIVADO ===");
         salida.writeUTF("Los mensajes que escribas solo los verá " + oponente);
-        salida.writeUTF("NO recibirás mensajes del chat general mientras juegas.");
-        salida.writeUTF("Para volver al chat general, finaliza la partida.");
         salida.writeUTF("");
         salida.writeUTF("=== CÓMO JUGAR ===");
         salida.writeUTF("Escribe: fila columna (ejemplo: 1 2)");
@@ -654,9 +641,9 @@ public class UnCliente implements Runnable {
         
         enviarResultadoPartida(ganador, oponente, clienteOponente);
         
-        salida.writeUTF("[SISTEMA]: Chat de partida desactivado. Tus mensajes ahora van a todos (excepto jugadores en partida).");
+        salida.writeUTF("[SISTEMA]: Chat de partida desactivado. Volviste al grupo '" + grupoActual + "'.");
         Optional.ofNullable(clienteOponente)
-            .ifPresent(cliente -> enviarSafe(cliente, "[SISTEMA]: Chat de partida desactivado. Tus mensajes ahora van a todos (excepto jugadores en partida)."));
+            .ifPresent(cliente -> enviarSafe(cliente, "[SISTEMA]: Chat de partida desactivado. Volviste al grupo '" + cliente.grupoActual + "'."));
         
         ServidorMulti.finalizarPartida(partida.getJugador1(), partida.getJugador2());
     }
@@ -711,11 +698,11 @@ public class UnCliente implements Runnable {
         ServidorMulti.registrarResultadoPartida(partida.getJugador1(), partida.getJugador2(), oponente);
         
         salida.writeUTF("[GATO]: Te has rendido. " + oponente + " gana la partida.");
-        salida.writeUTF("[SISTEMA]: Chat de partida desactivado. Volviste al chat general.");
+        salida.writeUTF("[SISTEMA]: Chat de partida desactivado. Volviste al grupo '" + grupoActual + "'.");
         
         Optional.ofNullable(ServidorMulti.clientes.get(oponente)).ifPresent(cliente -> {
             enviarSafe(cliente, "[GATO]: " + nombreCliente + " se rindió. ¡Has ganado!");
-            enviarSafe(cliente, "[SISTEMA]: Chat de partida desactivado. Volviste al chat general.");
+            enviarSafe(cliente, "[SISTEMA]: Chat de partida desactivado. Volviste al grupo '" + cliente.grupoActual + "'.");
         });
         
         ServidorMulti.finalizarPartida(partida.getJugador1(), partida.getJugador2());
@@ -821,17 +808,38 @@ public class UnCliente implements Runnable {
     
     private void mostrarAyuda() throws IOException {
         salida.writeUTF("=== COMANDOS DISPONIBLES ===");
-        salida.writeUTF("registrar - Crear una nueva cuenta");
-        salida.writeUTF("login - Iniciar sesión");
-        salida.writeUTF("logout - Cerrar sesión");
-        salida.writeUTF("@ o privado - Enviar mensaje privado");
-        salida.writeUTF("bloquear - Bloquear usuario");
-        salida.writeUTF("desbloquear - Desbloquear usuario");
-        salida.writeUTF("misBloqueados - Ver usuarios bloqueados");
-        salida.writeUTF("gato - Jugar al gato");
-        salida.writeUTF("ranking - Ver ranking general de jugadores");
-        salida.writeUTF("vs - Ver estadísticas entre dos jugadores");
-        salida.writeUTF("help - Mostrar esta ayuda");
+        salida.writeUTF("");
+        salida.writeUTF("AUTENTICACIÓN:");
+        salida.writeUTF("  registrar - Crear una nueva cuenta");
+        salida.writeUTF("  login - Iniciar sesión");
+        salida.writeUTF("  logout - Cerrar sesión");
+        salida.writeUTF("");
+        salida.writeUTF("GRUPOS:");
+        salida.writeUTF("  creargrupo - Crear un nuevo grupo");
+        salida.writeUTF("  eliminargrupo - Eliminar un grupo que creaste");
+        salida.writeUTF("  unirse - Unirse a un grupo");
+        salida.writeUTF("  salirgrupo - Salir de un grupo");
+        salida.writeUTF("  grupos - Ver todos los grupos disponibles");
+        salida.writeUTF("  misgrupos - Ver tus grupos");
+        salida.writeUTF("  miembros - Ver miembros de un grupo");
+        salida.writeUTF("  cambiargrupo - Cambiar al grupo activo");
+        salida.writeUTF("  grupoactual - Ver tu grupo actual");
+        salida.writeUTF("");
+        salida.writeUTF("MENSAJES:");
+        salida.writeUTF("  @ o privado - Enviar mensaje privado");
+        salida.writeUTF("  [mensaje] - Enviar mensaje al grupo actual");
+        salida.writeUTF("");
+        salida.writeUTF("BLOQUEO:");
+        salida.writeUTF("  bloquear - Bloquear usuario");
+        salida.writeUTF("  desbloquear - Desbloquear usuario");
+        salida.writeUTF("  misBloqueados - Ver usuarios bloqueados");
+        salida.writeUTF("");
+        salida.writeUTF("JUEGO DEL GATO:");
+        salida.writeUTF("  gato - Jugar al gato (tic-tac-toe)");
+        salida.writeUTF("  ranking - Ver ranking general de jugadores");
+        salida.writeUTF("  vs - Ver estadísticas entre dos jugadores");
+        salida.writeUTF("");
+        salida.writeUTF("  help - Mostrar esta ayuda");
     }
     
     private void mostrarAyudaGato() throws IOException {
@@ -863,7 +871,7 @@ public class UnCliente implements Runnable {
         salida.writeUTF("");
         salida.writeUTF("rendirse - Abandonar la partida actual");
         salida.writeUTF("");
-        salida.writeUTF("NOTA: Mientras juegas NO recibirás mensajes del chat general.");
+        salida.writeUTF("NOTA: Mientras juegas NO recibirás mensajes del chat de grupos.");
     }
     
     // ==================== AUTENTICACIÓN ====================
@@ -910,10 +918,14 @@ public class UnCliente implements Runnable {
         cambiarNombreCliente(nuevoNombre);
         autenticado = true;
         mensajesEnviados = 0;
+        grupoActual = GRUPO_PREDETERMINADO;
         
         salida.writeUTF("[SISTEMA]: ¡Registro exitoso! Ahora eres: " + nombreCliente);
+        salida.writeUTF("[SISTEMA]: Estás en el grupo: " + grupoActual);
         System.out.println(nombreAnterior + " se registró como: " + nombreCliente);
-        notificarATodos(nombreCliente + " se ha unido al chat.", this);
+        
+      
+        mostrarMensajesNoLeidos();
     }
     
     private void iniciarSesion() throws IOException {
@@ -942,10 +954,14 @@ public class UnCliente implements Runnable {
         cambiarNombreCliente(nombre);
         autenticado = true;
         mensajesEnviados = 0;
+        grupoActual = GRUPO_PREDETERMINADO;
         
         salida.writeUTF("[SISTEMA]: ¡Inicio de sesión exitoso! Bienvenido de nuevo, " + nombreCliente);
+        salida.writeUTF("[SISTEMA]: Estás en el grupo: " + grupoActual);
         System.out.println(nombreAnterior + " inició sesión como: " + nombreCliente);
-        notificarATodos(nombreCliente + " se ha unido al chat.", this);
+        
+        // Mostrar mensajes no leídos si los hay
+        mostrarMensajesNoLeidos();
     }
     
     private void cerrarSesion() throws IOException {
@@ -958,12 +974,12 @@ public class UnCliente implements Runnable {
         cambiarNombreCliente(PREFIJO_INVITADO + System.currentTimeMillis());
         autenticado = false;
         mensajesEnviados = 0;
+        grupoActual = GRUPO_PREDETERMINADO;
         
         salida.writeUTF("[SISTEMA]: Has cerrado sesión. Ahora eres: " + nombreCliente);
         salida.writeUTF("[SISTEMA]: Tienes 3 mensajes gratuitos. Escribe 'login' para iniciar sesión nuevamente.");
+        salida.writeUTF("[SISTEMA]: Estás en el grupo: " + GRUPO_PREDETERMINADO);
         System.out.println(nombreAnterior + " cerró sesión y ahora es: " + nombreCliente);
-        
-        notificarATodos(nombreAnterior + " ha cerrado sesión.", this);
     }
     
     // ==================== UTILIDADES ====================
@@ -988,3 +1004,5 @@ public class UnCliente implements Runnable {
         boolean ejecutar() throws IOException;
     }
 }
+
+
