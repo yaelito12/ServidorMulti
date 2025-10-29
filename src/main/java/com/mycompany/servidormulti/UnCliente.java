@@ -74,11 +74,17 @@ public class UnCliente implements Runnable {
         if (cmd.equals("ranking")) return () -> { mostrarRankingGeneral(); return true; };
         if (cmd.equals("vs") || cmd.equals("estadisticas")) return () -> { mostrarEstadisticasVs(); return true; };
         
+        // Comandos de grupos
         if (cmd.equals("creargrupo") || cmd.equals("crear grupo")) return () -> { crearGrupo(); return true; };
         if (cmd.equals("eliminargrupo") || cmd.equals("eliminar grupo")) return () -> { eliminarGrupo(); return true; };
         if (cmd.equals("unirsegrupo") || cmd.equals("unirse grupo") || cmd.equals("unirse")) return () -> { unirseAGrupo(); return true; };
         if (cmd.equals("salirgrupo") || cmd.equals("salir grupo")) return () -> { salirDeGrupo(); return true; };
-      
+        if (cmd.equals("grupos")) return () -> { listarGruposDisponibles(); return true; };
+        if (cmd.equals("misgrupos") || cmd.equals("mis grupos")) return () -> { listarMisGrupos(); return true; };
+        if (cmd.equals("miembros")) return () -> { listarMiembrosGrupo(); return true; };
+        if (cmd.equals("cambiargrupo") || cmd.equals("cambiar grupo") || cmd.equals("grupo")) return () -> { cambiarGrupoActual(); return true; };
+        if (cmd.equals("grupoactual") || cmd.equals("grupo actual")) return () -> { mostrarGrupoActual(); return true; };
+        
         if (esMovimientoGato(mensaje)) return () -> { realizarMovimientoGato(esFormatoSimple(mensaje) ? "jugar " + mensaje : mensaje); return true; };
         
         return () -> false;
@@ -141,7 +147,7 @@ public class UnCliente implements Runnable {
             .ifPresent(cliente -> enviarSafe(cliente, "[CHAT-PARTIDA] " + nombreCliente + ": " + mensaje));
         salida.writeUTF("[CHAT-PARTIDA] Tú: " + mensaje);
     }
-   
+    
     private void enviarSafe(UnCliente cliente, String mensaje) {
         try {
             cliente.salida.writeUTF(mensaje);
@@ -225,7 +231,7 @@ public class UnCliente implements Runnable {
         }
     }
     
-   
+
     private void crearGrupo() throws IOException {
         if (!verificarAutenticacion()) return;
         
@@ -1109,7 +1115,7 @@ public class UnCliente implements Runnable {
         salida.writeUTF("[SISTEMA]: ¡Registro exitoso! Ahora eres: " + nombreCliente);
         salida.writeUTF("[SISTEMA]: Estás en el grupo: " + grupoActual);
         System.out.println(nombreAnterior + " se registró como: " + nombreCliente);
-        
+
         mostrarMensajesNoLeidos();
     }
     
