@@ -55,8 +55,7 @@ public class BaseDatos {
                     "id INTEGER PRIMARY KEY AUTOINCREMENT," +
                     "nombre TEXT UNIQUE NOT NULL," +
                     "creador TEXT NOT NULL," +
-                    "fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP," +
-                    "FOREIGN KEY(creador) REFERENCES usuarios(nombre))");
+                    "fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
             
             // Tabla de miembros de grupos
             stmt.execute("CREATE TABLE IF NOT EXISTS miembros_grupo (" +
@@ -64,9 +63,7 @@ public class BaseDatos {
                     "grupo_nombre TEXT NOT NULL," +
                     "usuario TEXT NOT NULL," +
                     "fecha_union TIMESTAMP DEFAULT CURRENT_TIMESTAMP," +
-                    "UNIQUE(grupo_nombre, usuario)," +
-                    "FOREIGN KEY(grupo_nombre) REFERENCES grupos(nombre)," +
-                    "FOREIGN KEY(usuario) REFERENCES usuarios(nombre))");
+                    "UNIQUE(grupo_nombre, usuario))");
             
             // Tabla de mensajes de grupo
             stmt.execute("CREATE TABLE IF NOT EXISTS mensajes_grupo (" +
@@ -74,9 +71,7 @@ public class BaseDatos {
                     "grupo_nombre TEXT NOT NULL," +
                     "remitente TEXT NOT NULL," +
                     "mensaje TEXT NOT NULL," +
-                    "fecha_envio TIMESTAMP DEFAULT CURRENT_TIMESTAMP," +
-                    "FOREIGN KEY(grupo_nombre) REFERENCES grupos(nombre)," +
-                    "FOREIGN KEY(remitente) REFERENCES usuarios(nombre))");
+                    "fecha_envio TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
             
             // Tabla de mensajes leídos por usuario
             stmt.execute("CREATE TABLE IF NOT EXISTS mensajes_leidos (" +
@@ -84,9 +79,7 @@ public class BaseDatos {
                     "usuario TEXT NOT NULL," +
                     "grupo_nombre TEXT NOT NULL," +
                     "ultimo_mensaje_id INTEGER DEFAULT 0," +
-                    "UNIQUE(usuario, grupo_nombre)," +
-                    "FOREIGN KEY(usuario) REFERENCES usuarios(nombre)," +
-                    "FOREIGN KEY(grupo_nombre) REFERENCES grupos(nombre))");
+                    "UNIQUE(usuario, grupo_nombre))");
             
             // Crear grupo "Todos" si no existe
             crearGrupoTodos();
@@ -192,7 +185,8 @@ public class BaseDatos {
         return usuarios;
     }
     
-   
+    // ==================== MÉTODOS DE GRUPOS ====================
+    
     public synchronized boolean crearGrupo(String nombreGrupo, String creador) {
         String sql = "INSERT INTO grupos (nombre, creador) VALUES (?, ?)";
         String sqlUnir = "INSERT INTO miembros_grupo (grupo_nombre, usuario) VALUES (?, ?)";
@@ -355,7 +349,156 @@ public class BaseDatos {
         return false;
     }
     
-  
+    public List<String> obtenerGruposDisponibles() {
+        List<String> grupos = new ArrayList<>();
+        String sql = "SELECT nombre, creador, " +
+                     "(SELECT COUNT(*) FROM miembros_grupo WHERE grupo_nombre = grupos.nombre) as miembros " +
+                     "FROM grupos ORDER BY nombre";
+        
+        try (Connection conn = DriverManager.getConnection(DB_URL);
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            
+            while (rs.next()) {
+                String nombre = rs.getString("nombre");
+                String creador = rs.getString("creador");
+                int miembros = rs.getInt("miembros");
+                grupos.add(nombre + " [" + miembros + " miembros] (creador: " + creador + ")");
+            }
+        } catch (SQLException e) {
+            System.err.println("Error obteniendo grupos: " + e.getMessage());
+        }
+        
+        return grupos;
+    }
+    
+    public List<String> obtenerMisGrupos(String usuario) {
+        List<String> grupos = new ArrayList<>();
+        String sql = "SELECT grupo_nombre FROM miembros_grupo WHERE usuario = ? ORDER BY grupo_nombre";
+        
+        try (Connection conn = DriverManager.getConnection(DB_URL);
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setString(1, usuario);
+            ResultSet rs = pstmt.executeQuery();
+            
+            while (rs.next()) {
+                grupos.add(rs.getString("grupo_nombre"));
+            }
+        } catch (SQLException e) {
+            System.err.println("Error obteniendo mis grupos: " + e.getMessage());
+        }
+        
+        return grupos;
+    }
+    
+    public List<String> obtenerMiembrosGrupo(String nombreGrupo) {
+        List<String> miembros = new ArrayList<>();
+        String sql = "SELECT usuario FROM miembros_grupo WHERE grupo_nombre = ? ORDER BY usuario";
+        
+        try (Connection conn = DriverManager.getConnection(DB_URL);
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setString(1, nombreGrupo);
+            ResultSet rs = pstmt.executeQuery();
+            
+            while (rs.next()) {
+                miembros.add(rs.getString("usuario"));
+            }
+        } catch (SQLException e) {
+            System.err.println("Error obteniendo miembros del grupo: " + e.getMessage());
+        }
+        
+        return miembros;
+    }
+    
+    // ==================== MÉTODOS DE MENSAJES DE GRUPO ====================
+    
+    public synchronized long guardarMensajeGrupo(String nombreGrupo, String remitente, String mensaje) {
+        String sql = "INSERT INTO mensajes_grupo (grupo_nombre, remitente, mensaje) VALUES (?, ?, ?)";
+        
+        try (Connection conn = DriverManager.getConnection(DB_URL);
+             PreparedStatement pstmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+            pstmt.setString(1, nombreGrupo);
+            pstmt.setString(2, remitente);
+            pstmt.setString(3, mensaje);
+            pstmt.executeUpdate();
+            
+            ResultSet rs = pstmt.getGeneratedKeys();
+            if (rs.next()) {
+                return rs.getLong(1);
+            }
+        } catch (SQLException e) {
+            System.err.println("Error guardando mensaje: " + e.getMessage());
+        }
+        return -1;
+    }
+    
+    public synchronized void actualizarUltimoMensajeLeido(String usuario, String nombreGrupo, long idMensaje) {
+        String sql = "INSERT OR REPLACE INTO mensajes_leidos (usuario, grupo_nombre, ultimo_mensaje_id) VALUES (?, ?, ?)";
+        
+        try (Connection conn = DriverManager.getConnection(DB_URL);
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setString(1, usuario);
+            pstmt.setString(2, nombreGrupo);
+            pstmt.setLong(3, idMensaje);
+            pstmt.executeUpdate();
+        } catch (SQLException e) {
+            System.err.println("Error actualizando último mensaje leído: " + e.getMessage());
+        }
+    }
+    
+    public List<MensajeGrupo> obtenerMensajesNoLeidos(String usuario, String nombreGrupo) {
+        List<MensajeGrupo> mensajes = new ArrayList<>();
+        
+        String sql = "SELECT m.id, m.remitente, m.mensaje, m.fecha_envio " +
+                     "FROM mensajes_grupo m " +
+                     "WHERE m.grupo_nombre = ? " +
+                     "AND m.id > COALESCE((SELECT ultimo_mensaje_id FROM mensajes_leidos WHERE usuario = ? AND grupo_nombre = ?), 0) " +
+                     "ORDER BY m.id";
+        
+        try (Connection conn = DriverManager.getConnection(DB_URL);
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setString(1, nombreGrupo);
+            pstmt.setString(2, usuario);
+            pstmt.setString(3, nombreGrupo);
+            ResultSet rs = pstmt.executeQuery();
+            
+            while (rs.next()) {
+                MensajeGrupo mensaje = new MensajeGrupo();
+                mensaje.id = rs.getLong("id");
+                mensaje.remitente = rs.getString("remitente");
+                mensaje.mensaje = rs.getString("mensaje");
+                mensaje.fechaEnvio = rs.getString("fecha_envio");
+                mensajes.add(mensaje);
+            }
+        } catch (SQLException e) {
+            System.err.println("Error obteniendo mensajes no leídos: " + e.getMessage());
+        }
+        
+        return mensajes;
+    }
+    
+    public int contarMensajesNoLeidos(String usuario, String nombreGrupo) {
+        String sql = "SELECT COUNT(*) FROM mensajes_grupo m " +
+                     "WHERE m.grupo_nombre = ? " +
+                     "AND m.id > COALESCE((SELECT ultimo_mensaje_id FROM mensajes_leidos WHERE usuario = ? AND grupo_nombre = ?), 0)";
+        
+        try (Connection conn = DriverManager.getConnection(DB_URL);
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setString(1, nombreGrupo);
+            pstmt.setString(2, usuario);
+            pstmt.setString(3, nombreGrupo);
+            ResultSet rs = pstmt.executeQuery();
+            
+            if (rs.next()) {
+                return rs.getInt(1);
+            }
+        } catch (SQLException e) {
+            System.err.println("Error contando mensajes no leídos: " + e.getMessage());
+        }
+        return 0;
+    }
+    
+   
     public synchronized void registrarResultadoPartida(String jugador1, String jugador2, String ganador) {
         try (Connection conn = DriverManager.getConnection(DB_URL)) {
             conn.setAutoCommit(false);
@@ -576,3 +719,5 @@ public class BaseDatos {
         public String fechaEnvio;
     }
 }
+
+
