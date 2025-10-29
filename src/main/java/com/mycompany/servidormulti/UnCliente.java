@@ -73,6 +73,13 @@ public class UnCliente implements Runnable {
         if (cmd.equals("rendirse")) return () -> { rendirseEnPartida(); return true; };
         if (cmd.equals("ranking")) return () -> { mostrarRankingGeneral(); return true; };
         if (cmd.equals("vs") || cmd.equals("estadisticas")) return () -> { mostrarEstadisticasVs(); return true; };
+        
+     
+        if (cmd.equals("creargrupo") || cmd.equals("crear grupo")) return () -> { crearGrupo(); return true; };
+        if (cmd.equals("eliminargrupo") || cmd.equals("eliminar grupo")) return () -> { eliminarGrupo(); return true; };
+        if (cmd.equals("unirsegrupo") || cmd.equals("unirse grupo") || cmd.equals("unirse")) return () -> { unirseAGrupo(); return true; };
+        if (cmd.equals("salirgrupo") || cmd.equals("salir grupo")) return () -> { salirDeGrupo(); return true; };
+
         if (esMovimientoGato(mensaje)) return () -> { realizarMovimientoGato(esFormatoSimple(mensaje) ? "jugar " + mensaje : mensaje); return true; };
         
         return () -> false;
@@ -135,7 +142,7 @@ public class UnCliente implements Runnable {
         salida.writeUTF("[CHAT-PARTIDA] Tú: " + mensaje);
     }
     
-    
+   
     private void enviarSafe(UnCliente cliente, String mensaje) {
         try {
             cliente.salida.writeUTF(mensaje);
@@ -924,7 +931,6 @@ public class UnCliente implements Runnable {
         salida.writeUTF("[SISTEMA]: Estás en el grupo: " + grupoActual);
         System.out.println(nombreAnterior + " se registró como: " + nombreCliente);
         
-      
         mostrarMensajesNoLeidos();
     }
     
