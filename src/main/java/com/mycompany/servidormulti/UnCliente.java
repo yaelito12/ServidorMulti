@@ -74,12 +74,11 @@ public class UnCliente implements Runnable {
         if (cmd.equals("ranking")) return () -> { mostrarRankingGeneral(); return true; };
         if (cmd.equals("vs") || cmd.equals("estadisticas")) return () -> { mostrarEstadisticasVs(); return true; };
         
-     
         if (cmd.equals("creargrupo") || cmd.equals("crear grupo")) return () -> { crearGrupo(); return true; };
         if (cmd.equals("eliminargrupo") || cmd.equals("eliminar grupo")) return () -> { eliminarGrupo(); return true; };
         if (cmd.equals("unirsegrupo") || cmd.equals("unirse grupo") || cmd.equals("unirse")) return () -> { unirseAGrupo(); return true; };
         if (cmd.equals("salirgrupo") || cmd.equals("salir grupo")) return () -> { salirDeGrupo(); return true; };
-
+      
         if (esMovimientoGato(mensaje)) return () -> { realizarMovimientoGato(esFormatoSimple(mensaje) ? "jugar " + mensaje : mensaje); return true; };
         
         return () -> false;
@@ -103,11 +102,12 @@ public class UnCliente implements Runnable {
     }
     
     private void procesarMensajeRegular(String mensaje) throws IOException {
+        System.out.println("[" + nombreCliente + " en " + grupoActual + "]: " + mensaje);
         actualizarContadorMensajes();
         
         obtenerPartidaActiva()
             .map(partida -> { enviarMensajeEnPartidaSafe(mensaje, partida); return true; })
-                
+            .orElseGet(() -> { enviarMensajeGrupoSafe(mensaje); return true; });
     }
     
     private void actualizarContadorMensajes() throws IOException {
@@ -141,7 +141,6 @@ public class UnCliente implements Runnable {
             .ifPresent(cliente -> enviarSafe(cliente, "[CHAT-PARTIDA] " + nombreCliente + ": " + mensaje));
         salida.writeUTF("[CHAT-PARTIDA] Tú: " + mensaje);
     }
-    
    
     private void enviarSafe(UnCliente cliente, String mensaje) {
         try {
@@ -226,6 +225,186 @@ public class UnCliente implements Runnable {
         }
     }
     
+   
+    private void crearGrupo() throws IOException {
+        if (!verificarAutenticacion()) return;
+        
+        salida.writeUTF("[SISTEMA]: Ingresa el nombre del grupo:");
+        String nombreGrupo = entrada.readUTF().trim();
+        
+        if (nombreGrupo.isEmpty()) {
+            salida.writeUTF("[ERROR]: El nombre del grupo no puede estar vacío.");
+            return;
+        }
+        
+        if (nombreGrupo.equalsIgnoreCase(GRUPO_PREDETERMINADO)) {
+            salida.writeUTF("[ERROR]: No puedes usar ese nombre de grupo.");
+            return;
+        }
+        
+        if (ServidorMulti.existeGrupo(nombreGrupo)) {
+            salida.writeUTF("[ERROR]: Ya existe un grupo con ese nombre.");
+            return;
+        }
+        
+        if (ServidorMulti.crearGrupo(nombreGrupo, nombreCliente)) {
+            salida.writeUTF("[SISTEMA]: ¡Grupo '" + nombreGrupo + "' creado exitosamente!");
+            salida.writeUTF("[SISTEMA]: Te has unido automáticamente al grupo.");
+            salida.writeUTF("[SISTEMA]: Usa 'cambiargrupo' para cambiar a este grupo.");
+        } else {
+            salida.writeUTF("[ERROR]: No se pudo crear el grupo.");
+        }
+    }
+    
+    private void eliminarGrupo() throws IOException {
+        if (!verificarAutenticacion()) return;
+        
+        List<String> misGrupos = ServidorMulti.obtenerMisGrupos(nombreCliente);
+        if (misGrupos.size() <= 1) {
+            salida.writeUTF("[SISTEMA]: No tienes grupos que puedas eliminar.");
+            return;
+        }
+        
+        salida.writeUTF("[SISTEMA]: Tus grupos:");
+        for (String grupo : misGrupos) {
+            if (!grupo.equals(GRUPO_PREDETERMINADO)) {
+                salida.writeUTF("  - " + grupo);
+            }
+        }
+        
+        salida.writeUTF("[SISTEMA]: Ingresa el nombre del grupo a eliminar:");
+        String nombreGrupo = entrada.readUTF().trim();
+        
+        if (nombreGrupo.isEmpty()) {
+            salida.writeUTF("[SISTEMA]: Operación cancelada.");
+            return;
+        }
+        
+        if (nombreGrupo.equals(GRUPO_PREDETERMINADO)) {
+            salida.writeUTF("[ERROR]: No puedes eliminar el grupo '" + GRUPO_PREDETERMINADO + "'.");
+            return;
+        }
+        
+        if (!ServidorMulti.existeGrupo(nombreGrupo)) {
+            salida.writeUTF("[ERROR]: El grupo '" + nombreGrupo + "' no existe.");
+            return;
+        }
+        
+        if (ServidorMulti.eliminarGrupo(nombreGrupo)) {
+            salida.writeUTF("[SISTEMA]: ¡Grupo '" + nombreGrupo + "' eliminado exitosamente!");
+            
+            // Si estaba en ese grupo, cambiarlo a "Todos"
+            if (grupoActual.equals(nombreGrupo)) {
+                grupoActual = GRUPO_PREDETERMINADO;
+                salida.writeUTF("[SISTEMA]: Has sido movido al grupo '" + GRUPO_PREDETERMINADO + "'.");
+                mostrarMensajesNoLeidos();
+            }
+            
+            // Notificar a todos los miembros conectados
+            List<String> miembros = ServidorMulti.clientes.keySet().stream()
+                .filter(c -> !c.equals(nombreCliente))
+                .collect(java.util.stream.Collectors.toList());
+            
+            for (String miembro : miembros) {
+                UnCliente cliente = ServidorMulti.clientes.get(miembro);
+                if (cliente != null && cliente.grupoActual.equals(nombreGrupo)) {
+                    cliente.grupoActual = GRUPO_PREDETERMINADO;
+                    enviarSafe(cliente, "[SISTEMA]: El grupo '" + nombreGrupo + "' ha sido eliminado.");
+                    enviarSafe(cliente, "[SISTEMA]: Has sido movido al grupo '" + GRUPO_PREDETERMINADO + "'.");
+                }
+            }
+        } else {
+            salida.writeUTF("[ERROR]: No se pudo eliminar el grupo.");
+        }
+    }
+    
+    private void unirseAGrupo() throws IOException {
+        if (!verificarAutenticacion()) return;
+        
+        List<String> grupos = ServidorMulti.obtenerGruposDisponibles();
+        if (grupos.isEmpty()) {
+            salida.writeUTF("[SISTEMA]: No hay grupos disponibles.");
+            return;
+        }
+        
+        salida.writeUTF("[SISTEMA]: Grupos disponibles:");
+        for (String grupo : grupos) {
+            salida.writeUTF("  " + grupo);
+        }
+        
+        salida.writeUTF("[SISTEMA]: Ingresa el nombre del grupo:");
+        String nombreGrupo = entrada.readUTF().trim();
+        
+        if (nombreGrupo.isEmpty()) {
+            salida.writeUTF("[SISTEMA]: Operación cancelada.");
+            return;
+        }
+        
+        if (!ServidorMulti.existeGrupo(nombreGrupo)) {
+            salida.writeUTF("[ERROR]: El grupo '" + nombreGrupo + "' no existe.");
+            return;
+        }
+        
+        if (ServidorMulti.esMiembroDeGrupo(nombreCliente, nombreGrupo)) {
+            salida.writeUTF("[ERROR]: Ya eres miembro del grupo '" + nombreGrupo + "'.");
+            return;
+        }
+        
+        if (ServidorMulti.unirseAGrupo(nombreCliente, nombreGrupo)) {
+            salida.writeUTF("[SISTEMA]: ¡Te has unido al grupo '" + nombreGrupo + "' exitosamente!");
+            salida.writeUTF("[SISTEMA]: Usa 'cambiargrupo' para cambiar a este grupo.");
+        } else {
+            salida.writeUTF("[ERROR]: No se pudo unir al grupo.");
+        }
+    }
+    
+    private void salirDeGrupo() throws IOException {
+        if (!verificarAutenticacion()) return;
+        
+        List<String> misGrupos = ServidorMulti.obtenerMisGrupos(nombreCliente);
+        if (misGrupos.size() <= 1) {
+            salida.writeUTF("[SISTEMA]: Solo estás en el grupo '" + GRUPO_PREDETERMINADO + "' y no puedes salir de él.");
+            return;
+        }
+        
+        salida.writeUTF("[SISTEMA]: Tus grupos:");
+        for (String grupo : misGrupos) {
+            if (!grupo.equals(GRUPO_PREDETERMINADO)) {
+                salida.writeUTF("  - " + grupo);
+            }
+        }
+        
+        salida.writeUTF("[SISTEMA]: Ingresa el nombre del grupo:");
+        String nombreGrupo = entrada.readUTF().trim();
+        
+        if (nombreGrupo.isEmpty()) {
+            salida.writeUTF("[SISTEMA]: Operación cancelada.");
+            return;
+        }
+        
+        if (nombreGrupo.equals(GRUPO_PREDETERMINADO)) {
+            salida.writeUTF("[ERROR]: No puedes salir del grupo '" + GRUPO_PREDETERMINADO + "'.");
+            return;
+        }
+        
+        if (!ServidorMulti.esMiembroDeGrupo(nombreCliente, nombreGrupo)) {
+            salida.writeUTF("[ERROR]: No eres miembro del grupo '" + nombreGrupo + "'.");
+            return;
+        }
+        
+        if (ServidorMulti.salirDeGrupo(nombreCliente, nombreGrupo)) {
+            salida.writeUTF("[SISTEMA]: Has salido del grupo '" + nombreGrupo + "'.");
+            
+            // Si estaba en ese grupo, cambiarlo a "Todos"
+            if (grupoActual.equals(nombreGrupo)) {
+                grupoActual = GRUPO_PREDETERMINADO;
+                salida.writeUTF("[SISTEMA]: Has sido movido al grupo '" + GRUPO_PREDETERMINADO + "'.");
+                mostrarMensajesNoLeidos();
+            }
+        } else {
+            salida.writeUTF("[ERROR]: No se pudo salir del grupo.");
+        }
+    }
     // ==================== MENSAJES PRIVADOS ====================
     
     private void mostrarUsuariosYEnviarMensaje() throws IOException {
@@ -1010,5 +1189,3 @@ public class UnCliente implements Runnable {
         boolean ejecutar() throws IOException;
     }
 }
-
-
