@@ -56,42 +56,40 @@ public class BaseDatos {
                     "nombre TEXT UNIQUE NOT NULL," +
                     "creador TEXT NOT NULL," +
                     "fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP," +
-                    "es_sistema INTEGER DEFAULT 0," +
                     "FOREIGN KEY(creador) REFERENCES usuarios(nombre))");
             
             // Tabla de miembros de grupos
             stmt.execute("CREATE TABLE IF NOT EXISTS miembros_grupo (" +
                     "id INTEGER PRIMARY KEY AUTOINCREMENT," +
-                    "grupo TEXT NOT NULL," +
+                    "grupo_nombre TEXT NOT NULL," +
                     "usuario TEXT NOT NULL," +
                     "fecha_union TIMESTAMP DEFAULT CURRENT_TIMESTAMP," +
-                    "UNIQUE(grupo, usuario)," +
-                    "FOREIGN KEY(grupo) REFERENCES grupos(nombre)," +
+                    "UNIQUE(grupo_nombre, usuario)," +
+                    "FOREIGN KEY(grupo_nombre) REFERENCES grupos(nombre)," +
                     "FOREIGN KEY(usuario) REFERENCES usuarios(nombre))");
             
             // Tabla de mensajes de grupo
             stmt.execute("CREATE TABLE IF NOT EXISTS mensajes_grupo (" +
                     "id INTEGER PRIMARY KEY AUTOINCREMENT," +
-                    "grupo TEXT NOT NULL," +
-                    "usuario TEXT NOT NULL," +
+                    "grupo_nombre TEXT NOT NULL," +
+                    "remitente TEXT NOT NULL," +
                     "mensaje TEXT NOT NULL," +
                     "fecha_envio TIMESTAMP DEFAULT CURRENT_TIMESTAMP," +
-                    "FOREIGN KEY(grupo) REFERENCES grupos(nombre)," +
-                    "FOREIGN KEY(usuario) REFERENCES usuarios(nombre))");
+                    "FOREIGN KEY(grupo_nombre) REFERENCES grupos(nombre)," +
+                    "FOREIGN KEY(remitente) REFERENCES usuarios(nombre))");
             
-            // Tabla de mensajes leídos
+            // Tabla de mensajes leídos por usuario
             stmt.execute("CREATE TABLE IF NOT EXISTS mensajes_leidos (" +
                     "id INTEGER PRIMARY KEY AUTOINCREMENT," +
                     "usuario TEXT NOT NULL," +
-                    "grupo TEXT NOT NULL," +
-                    "ultimo_mensaje_id INTEGER NOT NULL," +
-                    "fecha_lectura TIMESTAMP DEFAULT CURRENT_TIMESTAMP," +
-                    "UNIQUE(usuario, grupo)," +
+                    "grupo_nombre TEXT NOT NULL," +
+                    "ultimo_mensaje_id INTEGER DEFAULT 0," +
+                    "UNIQUE(usuario, grupo_nombre)," +
                     "FOREIGN KEY(usuario) REFERENCES usuarios(nombre)," +
-                    "FOREIGN KEY(grupo) REFERENCES grupos(nombre))");
+                    "FOREIGN KEY(grupo_nombre) REFERENCES grupos(nombre))");
             
             // Crear grupo "Todos" si no existe
-            stmt.execute("INSERT OR IGNORE INTO grupos (nombre, creador, es_sistema) VALUES ('Todos', 'SISTEMA', 1)");
+            crearGrupoTodos();
             
             System.out.println("Base de datos inicializada correctamente");
         } catch (SQLException e) {
@@ -99,9 +97,20 @@ public class BaseDatos {
         }
     }
     
+    private void crearGrupoTodos() {
+        String sql = "INSERT OR IGNORE INTO grupos (nombre, creador) VALUES ('Todos', 'SISTEMA')";
+        try (Connection conn = DriverManager.getConnection(DB_URL);
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.executeUpdate();
+        } catch (SQLException e) {
+            System.err.println("Error creando grupo Todos: " + e.getMessage());
+        }
+    }
+    
     public synchronized void guardarUsuario(String nombre, String password) {
         String sqlUsuario = "INSERT INTO usuarios (nombre, password) VALUES (?, ?)";
         String sqlEstadisticas = "INSERT OR IGNORE INTO estadisticas_gato (jugador, victorias, empates, derrotas, puntos) VALUES (?, 0, 0, 0, 0)";
+        String sqlUnirTodos = "INSERT OR IGNORE INTO miembros_grupo (grupo_nombre, usuario) VALUES ('Todos', ?)";
         
         try (Connection conn = DriverManager.getConnection(DB_URL)) {
             conn.setAutoCommit(false);
@@ -116,6 +125,12 @@ public class BaseDatos {
                 
                 // Inicializar estadísticas
                 try (PreparedStatement pstmt = conn.prepareStatement(sqlEstadisticas)) {
+                    pstmt.setString(1, nombre);
+                    pstmt.executeUpdate();
+                }
+                
+                // Unir automáticamente al grupo "Todos"
+                try (PreparedStatement pstmt = conn.prepareStatement(sqlUnirTodos)) {
                     pstmt.setString(1, nombre);
                     pstmt.executeUpdate();
                 }
@@ -158,6 +173,12 @@ public class BaseDatos {
             try {
                 for (String nombre : usuarios.keySet()) {
                     inicializarEstadisticasLote(conn, nombre);
+                    // Unir al grupo "Todos" si no está
+                    String sqlUnirTodos = "INSERT OR IGNORE INTO miembros_grupo (grupo_nombre, usuario) VALUES ('Todos', ?)";
+                    try (PreparedStatement pstmt = conn.prepareStatement(sqlUnirTodos)) {
+                        pstmt.setString(1, nombre);
+                        pstmt.executeUpdate();
+                    }
                 }
                 conn.commit();
             } catch (SQLException e) {
@@ -171,6 +192,170 @@ public class BaseDatos {
         return usuarios;
     }
     
+   
+    public synchronized boolean crearGrupo(String nombreGrupo, String creador) {
+        String sql = "INSERT INTO grupos (nombre, creador) VALUES (?, ?)";
+        String sqlUnir = "INSERT INTO miembros_grupo (grupo_nombre, usuario) VALUES (?, ?)";
+        
+        try (Connection conn = DriverManager.getConnection(DB_URL)) {
+            conn.setAutoCommit(false);
+            
+            try {
+                // Crear el grupo
+                try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
+                    pstmt.setString(1, nombreGrupo);
+                    pstmt.setString(2, creador);
+                    pstmt.executeUpdate();
+                }
+                
+                // Unir al creador automáticamente
+                try (PreparedStatement pstmt = conn.prepareStatement(sqlUnir)) {
+                    pstmt.setString(1, nombreGrupo);
+                    pstmt.setString(2, creador);
+                    pstmt.executeUpdate();
+                }
+                
+                conn.commit();
+                System.out.println("Grupo '" + nombreGrupo + "' creado por " + creador);
+                return true;
+            } catch (SQLException e) {
+                conn.rollback();
+                throw e;
+            }
+        } catch (SQLException e) {
+            System.err.println("Error creando grupo: " + e.getMessage());
+            return false;
+        }
+    }
+    
+    public synchronized boolean eliminarGrupo(String nombreGrupo) {
+        if ("Todos".equals(nombreGrupo)) {
+            return false; // No se puede eliminar el grupo "Todos"
+        }
+        
+        try (Connection conn = DriverManager.getConnection(DB_URL)) {
+            conn.setAutoCommit(false);
+            
+            try {
+                // Eliminar mensajes del grupo
+                String sqlMensajes = "DELETE FROM mensajes_grupo WHERE grupo_nombre = ?";
+                try (PreparedStatement pstmt = conn.prepareStatement(sqlMensajes)) {
+                    pstmt.setString(1, nombreGrupo);
+                    pstmt.executeUpdate();
+                }
+                
+                // Eliminar registros de mensajes leídos
+                String sqlLeidos = "DELETE FROM mensajes_leidos WHERE grupo_nombre = ?";
+                try (PreparedStatement pstmt = conn.prepareStatement(sqlLeidos)) {
+                    pstmt.setString(1, nombreGrupo);
+                    pstmt.executeUpdate();
+                }
+                
+                // Eliminar miembros del grupo
+                String sqlMiembros = "DELETE FROM miembros_grupo WHERE grupo_nombre = ?";
+                try (PreparedStatement pstmt = conn.prepareStatement(sqlMiembros)) {
+                    pstmt.setString(1, nombreGrupo);
+                    pstmt.executeUpdate();
+                }
+                
+                // Eliminar el grupo
+                String sqlGrupo = "DELETE FROM grupos WHERE nombre = ?";
+                try (PreparedStatement pstmt = conn.prepareStatement(sqlGrupo)) {
+                    pstmt.setString(1, nombreGrupo);
+                    pstmt.executeUpdate();
+                }
+                
+                conn.commit();
+                System.out.println("Grupo '" + nombreGrupo + "' eliminado");
+                return true;
+            } catch (SQLException e) {
+                conn.rollback();
+                throw e;
+            }
+        } catch (SQLException e) {
+            System.err.println("Error eliminando grupo: " + e.getMessage());
+            return false;
+        }
+    }
+    
+    public synchronized boolean unirseAGrupo(String usuario, String nombreGrupo) {
+        String sql = "INSERT OR IGNORE INTO miembros_grupo (grupo_nombre, usuario) VALUES (?, ?)";
+        
+        try (Connection conn = DriverManager.getConnection(DB_URL);
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setString(1, nombreGrupo);
+            pstmt.setString(2, usuario);
+            int filas = pstmt.executeUpdate();
+            
+            if (filas > 0) {
+                System.out.println(usuario + " se unió al grupo '" + nombreGrupo + "'");
+                return true;
+            }
+            return false;
+        } catch (SQLException e) {
+            System.err.println("Error uniéndose al grupo: " + e.getMessage());
+            return false;
+        }
+    }
+    
+    public synchronized boolean salirDeGrupo(String usuario, String nombreGrupo) {
+        if ("Todos".equals(nombreGrupo)) {
+            return false; // No se puede salir del grupo "Todos"
+        }
+        
+        String sql = "DELETE FROM miembros_grupo WHERE grupo_nombre = ? AND usuario = ?";
+        
+        try (Connection conn = DriverManager.getConnection(DB_URL);
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setString(1, nombreGrupo);
+            pstmt.setString(2, usuario);
+            int filas = pstmt.executeUpdate();
+            
+            if (filas > 0) {
+                System.out.println(usuario + " salió del grupo '" + nombreGrupo + "'");
+                return true;
+            }
+            return false;
+        } catch (SQLException e) {
+            System.err.println("Error saliendo del grupo: " + e.getMessage());
+            return false;
+        }
+    }
+    
+    public boolean existeGrupo(String nombreGrupo) {
+        String sql = "SELECT COUNT(*) FROM grupos WHERE nombre = ?";
+        try (Connection conn = DriverManager.getConnection(DB_URL);
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setString(1, nombreGrupo);
+            ResultSet rs = pstmt.executeQuery();
+            
+            if (rs.next()) {
+                return rs.getInt(1) > 0;
+            }
+        } catch (SQLException e) {
+            System.err.println("Error verificando existencia de grupo: " + e.getMessage());
+        }
+        return false;
+    }
+    
+    public boolean esMiembroDeGrupo(String usuario, String nombreGrupo) {
+        String sql = "SELECT COUNT(*) FROM miembros_grupo WHERE grupo_nombre = ? AND usuario = ?";
+        try (Connection conn = DriverManager.getConnection(DB_URL);
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setString(1, nombreGrupo);
+            pstmt.setString(2, usuario);
+            ResultSet rs = pstmt.executeQuery();
+            
+            if (rs.next()) {
+                return rs.getInt(1) > 0;
+            }
+        } catch (SQLException e) {
+            System.err.println("Error verificando membresía: " + e.getMessage());
+        }
+        return false;
+    }
+    
+  
     public synchronized void registrarResultadoPartida(String jugador1, String jugador2, String ganador) {
         try (Connection conn = DriverManager.getConnection(DB_URL)) {
             conn.setAutoCommit(false);
@@ -360,6 +545,8 @@ public class BaseDatos {
         return bloqueados;
     }
     
+    // ==================== CLASES INTERNAS ====================
+    
     public static class EstadisticasEnfrentamiento {
         public String jugador1;
         public String jugador2;
@@ -380,5 +567,12 @@ public class BaseDatos {
                 porcentajeJ2 = 0;
             }
         }
+    }
+    
+    public static class MensajeGrupo {
+        public long id;
+        public String remitente;
+        public String mensaje;
+        public String fechaEnvio;
     }
 }
