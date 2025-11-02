@@ -498,7 +498,7 @@ public class BaseDatos {
         return 0;
     }
     
-   
+    
     public synchronized void registrarResultadoPartida(String jugador1, String jugador2, String ganador) {
         try (Connection conn = DriverManager.getConnection(DB_URL)) {
             conn.setAutoCommit(false);
@@ -719,5 +719,3 @@ public class BaseDatos {
         public String fechaEnvio;
     }
 }
-
-
