@@ -559,7 +559,7 @@ private void enviarMensajeBienvenida() throws IOException {
             salida.writeUTF("[SISTEMA]: Tienes " + noLeidos + " mensaje(s) no leído(s).");
         }
     }
-    
+    //Para merge se añadio sistema de grupos
     // ==================== DESCONEXIÓN ====================
     
     private void manejarDesconexion() {
