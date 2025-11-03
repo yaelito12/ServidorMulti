@@ -39,8 +39,6 @@ public class UnCliente implements Runnable {
         }
     }
     
-    // ==================== PROCESAMIENTO DE COMANDOS ====================
-    
     private void procesarComandos() throws IOException {
         while (true) {
             String mensaje = entrada.readUTF();
@@ -57,14 +55,44 @@ public class UnCliente implements Runnable {
     private ComandoHandler obtenerHandlerComando(String mensaje) {
         String cmd = mensaje.toLowerCase();
         
+        if (!autenticado) {
+            return obtenerHandlerNoAutenticado(cmd);
+        }
+        
+        return obtenerHandlerAutenticado(cmd, mensaje);
+    }
+    
+    private ComandoHandler obtenerHandlerNoAutenticado(String cmd) {
         if (cmd.equals("registrar")) return () -> { registrarUsuario(); return true; };
-        if (cmd.equals("login")) return () -> { iniciarSesion(); return true; };
-        if (cmd.equals("logout")) return () -> { cerrarSesion(); return true; };
-        if (cmd.equals("help")) return () -> { mostrarAyuda(); return true; };
+        if (cmd.equals("iniciar") || cmd.equals("login")) return () -> { iniciarSesion(); return true; };
+        if (cmd.equals("salir") || cmd.equals("logout")) return () -> { cerrarSesion(); return true; };
+        if (cmd.equals("ayuda") || cmd.equals("help")) {
+            return () -> { 
+                salida.writeUTF("[ERROR]: Debes iniciar sesión o registrarte para usar este comando.");
+                return true; 
+            };
+        }
+        return () -> false;
+    }
+    
+    private ComandoHandler obtenerHandlerAutenticado(String cmd, String mensaje) {
+        if (cmd.equals("salir") || cmd.equals("logout")) return () -> { cerrarSesion(); return true; };
+        if (cmd.equals("ayuda") || cmd.equals("help")) return () -> { mostrarAyuda(); return true; };
         if (cmd.equals("@") || cmd.equals("privado")) return () -> { mostrarUsuariosYEnviarMensaje(); return true; };
         if (cmd.equals("bloquear")) return () -> { mostrarUsuariosYBloquear(); return true; };
         if (cmd.equals("desbloquear")) return () -> { mostrarBloqueadosYDesbloquear(); return true; };
         if (cmd.equals("misbloqueados") || cmd.equals("mis bloqueados")) return () -> { mostrarMisBloqueados(); return true; };
+        
+        ComandoHandler grupoHandler = obtenerHandlerGrupos(cmd);
+        if (grupoHandler != null) return grupoHandler;
+        
+        ComandoHandler juegoHandler = obtenerHandlerJuego(cmd, mensaje);
+        if (juegoHandler != null) return juegoHandler;
+        
+        return () -> false;
+    }
+    
+    private ComandoHandler obtenerHandlerGrupos(String cmd) {
         if (cmd.equals("creargrupo")) return () -> { crearGrupo(); return true; };
         if (cmd.equals("eliminargrupo")) return () -> { eliminarGrupo(); return true; };
         if (cmd.equals("unirse")) return () -> { unirseAGrupo(); return true; };
@@ -74,6 +102,10 @@ public class UnCliente implements Runnable {
         if (cmd.equals("miembros")) return () -> { mostrarMiembrosGrupo(); return true; };
         if (cmd.equals("cambiargrupo")) return () -> { cambiarGrupoActivo(); return true; };
         if (cmd.equals("grupoactual")) return () -> { mostrarGrupoActual(); return true; };
+        return null;
+    }
+    
+    private ComandoHandler obtenerHandlerJuego(String cmd, String mensaje) {
         if (cmd.equals("gato") || cmd.equals("jugar")) return () -> { invitarAJugarGato(); return true; };
         if (cmd.equals("aceptar")) return () -> { aceptarInvitacionGato(); return true; };
         if (cmd.equals("rechazar")) return () -> { rechazarInvitacionGato(); return true; };
@@ -81,9 +113,13 @@ public class UnCliente implements Runnable {
         if (cmd.equals("rendirse")) return () -> { rendirseEnPartida(); return true; };
         if (cmd.equals("ranking")) return () -> { mostrarRankingGeneral(); return true; };
         if (cmd.equals("vs") || cmd.equals("estadisticas")) return () -> { mostrarEstadisticasVs(); return true; };
-        if (esMovimientoGato(mensaje)) return () -> { realizarMovimientoGato(esFormatoSimple(mensaje) ? "jugar " + mensaje : mensaje); return true; };
-        
-        return () -> false;
+        if (esMovimientoGato(mensaje)) {
+            return () -> { 
+                realizarMovimientoGato(esFormatoSimple(mensaje) ? "jugar " + mensaje : mensaje); 
+                return true; 
+            };
+        }
+        return null;
     }
     
     private boolean esMovimientoGato(String mensaje) {
@@ -98,9 +134,17 @@ public class UnCliente implements Runnable {
         boolean limiteAlcanzado = !autenticado && mensajesEnviados >= MENSAJES_GRATUITOS;
         if (limiteAlcanzado) {
             salida.writeUTF("[SISTEMA]: Has alcanzado el límite de 3 mensajes.");
-            salida.writeUTF("[SISTEMA]: Escribe 'registrar' para crear una cuenta o 'login' para iniciar sesión.");
+            salida.writeUTF("[SISTEMA]: Escribe 'registrar' para crear una cuenta o 'iniciar' para iniciar sesión.");
         }
         return !limiteAlcanzado;
+    }
+    
+    private void enviarMensajeInvitadoSafe(String mensaje) {
+        try {
+            enviarMensajeInvitado(mensaje);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
     
     private void procesarMensajeRegular(String mensaje) throws IOException {
@@ -109,7 +153,33 @@ public class UnCliente implements Runnable {
         
         obtenerPartidaActiva()
             .map(partida -> { enviarMensajeEnPartidaSafe(mensaje, partida); return true; })
-            .orElseGet(() -> { enviarMensajeAGrupoSafe(mensaje); return true; });
+            .orElseGet(() -> { 
+                if (!autenticado) {
+                    enviarMensajeInvitadoSafe(mensaje);
+                } else {
+                    enviarMensajeAGrupoSafe(mensaje);
+                }
+                return true; 
+            });
+    }  
+    
+    private void enviarMensajeInvitado(String mensaje) throws IOException {
+        String mensajeCompleto = "[Todos] " + nombreCliente + ": " + mensaje;
+        java.util.List<String> miembros = ServidorMulti.obtenerMiembrosGrupo(GRUPO_PREDETERMINADO);
+        
+        for (String miembro : miembros) {
+            if (miembro.equals(nombreCliente)) continue;
+            
+            UnCliente cliente = ServidorMulti.clientes.get(miembro);
+            if (cliente != null && !estaEnPartidaActiva(miembro)) {
+                if (cliente.grupoActual.equals(GRUPO_PREDETERMINADO)) {
+                    enviarSafe(cliente, mensajeCompleto);
+                } else {
+                    enviarSafe(cliente, "[NOTIFICACIÓN]: Nuevo mensaje en 'Todos'");
+                }
+            }
+        }
+        salida.writeUTF("[Todos] Tú (" + nombreCliente + "): " + mensaje);
     }
     
     private void actualizarContadorMensajes() throws IOException {
@@ -119,7 +189,7 @@ public class UnCliente implements Runnable {
         int restantes = MENSAJES_GRATUITOS - mensajesEnviados;
         String mensajeSistema = restantes > 0 
             ? "[SISTEMA]: Mensaje enviado. Te quedan " + restantes + " mensajes."
-            : "[SISTEMA]: Has usado tus 3 mensajes gratuitos. Escribe 'registrar' o 'login' para continuar.";
+            : "[SISTEMA]: Has usado tus 3 mensajes gratuitos. Escribe 'registrar' o 'iniciar' para continuar.";
         salida.writeUTF(mensajeSistema);
     }
     
@@ -163,33 +233,31 @@ public class UnCliente implements Runnable {
             return;
         }
         
-        // Guardar mensaje en base de datos
         long idMensaje = ServidorMulti.guardarMensajeGrupo(grupoActual, nombreCliente, mensaje);
         
-        // Marcar como leído para el remitente
         if (idMensaje > 0) {
             ServidorMulti.actualizarUltimoMensajeLeido(nombreCliente, grupoActual, idMensaje);
         }
         
-        // Enviar mensaje solo a miembros que están en el mismo grupo activo
+        distribuirMensajeGrupo(mensaje, idMensaje);
+    }
+    
+    private void distribuirMensajeGrupo(String mensaje, long idMensaje) throws IOException {
         String mensajeCompleto = "[" + grupoActual + "] " + nombreCliente + ": " + mensaje;
         java.util.List<String> miembros = ServidorMulti.obtenerMiembrosGrupo(grupoActual);
         
         for (String miembro : miembros) {
-            if (!miembro.equals(nombreCliente)) {
-                UnCliente cliente = ServidorMulti.clientes.get(miembro);
-                if (cliente != null && !estaEnPartidaActiva(miembro)) {
-                    // Solo enviar mensaje completo si está en el mismo grupo
-                    if (cliente.grupoActual.equals(grupoActual)) {
-                        enviarSafe(cliente, mensajeCompleto);
-                        // Marcar como leído si está en el mismo grupo
-                        if (idMensaje > 0) {
-                            ServidorMulti.actualizarUltimoMensajeLeido(miembro, grupoActual, idMensaje);
-                        }
-                    } else {
-                        // Solo notificar que hay un nuevo mensaje
-                        enviarSafe(cliente, "[NOTIFICACIÓN]: Nuevo mensaje en '" + grupoActual + "'");
+            if (miembro.equals(nombreCliente)) continue;
+            
+            UnCliente cliente = ServidorMulti.clientes.get(miembro);
+            if (cliente != null && !estaEnPartidaActiva(miembro)) {
+                if (cliente.grupoActual.equals(grupoActual)) {
+                    enviarSafe(cliente, mensajeCompleto);
+                    if (idMensaje > 0) {
+                        ServidorMulti.actualizarUltimoMensajeLeido(miembro, grupoActual, idMensaje);
                     }
+                } else {
+                    enviarSafe(cliente, "[NOTIFICACIÓN]: Nuevo mensaje en '" + grupoActual + "'");
                 }
             }
         }
@@ -203,21 +271,19 @@ public class UnCliente implements Runnable {
         }
     }
     
-    // ==================== INICIALIZACIÓN ====================
-    
- private void inicializarCliente() throws IOException {
-    enviarMensajeBienvenida();
-    nombreCliente = PREFIJO_INVITADO + System.currentTimeMillis();
-    ServidorMulti.registrarCliente(nombreCliente, this);
-}
+    private void inicializarCliente() throws IOException {
+        enviarMensajeBienvenida();
+        nombreCliente = PREFIJO_INVITADO + System.currentTimeMillis();
+        ServidorMulti.registrarCliente(nombreCliente, this);
+    }
 
-private void enviarMensajeBienvenida() throws IOException {
-    salida.writeUTF("=== BIENVENIDO AL CHAT ===");
-    salida.writeUTF("Puedes enviar 3 mensajes de prueba antes de registrarte.");
-    salida.writeUTF("Escribe 'registrar' o 'login' cuando quieras autenticarte.");
-    salida.writeUTF("Escribe 'logout' para cerrar sesión.");
-    salida.writeUTF("Escribe 'help' para ver todos los comandos disponibles.");
-}
+    private void enviarMensajeBienvenida() throws IOException {
+        salida.writeUTF("=== BIENVENIDO AL CHAT ===");
+        salida.writeUTF("Puedes enviar 3 mensajes de prueba antes de registrarte.");
+        salida.writeUTF("Escribe 'registrar' para crear una cuenta o 'iniciar' para iniciar sesión.");
+        salida.writeUTF("Escribe 'salir' para cerrar sesión.");
+        salida.writeUTF("Escribe 'ayuda' para ver todos los comandos disponibles.");
+    }
 
     private boolean estaEnPartidaActiva(String nombreJugador) {
         return ServidorMulti.obtenerPartidasDeJugador(nombreJugador).stream()
@@ -236,13 +302,9 @@ private void enviarMensajeBienvenida() throws IOException {
             .forEach(cliente -> enviarSafe(cliente, "[SISTEMA]: " + mensaje));
     }
     
-    // ==================== GETTER PARA GRUPO ACTUAL ====================
-    
     public String getGrupoActual() {
         return grupoActual;
     }
-    
-    // ==================== GESTIÓN DE GRUPOS ====================
     
     private void crearGrupo() throws IOException {
         if (!verificarAutenticacion()) return;
@@ -250,20 +312,7 @@ private void enviarMensajeBienvenida() throws IOException {
         salida.writeUTF("[SISTEMA]: Ingresa el nombre del nuevo grupo:");
         String nombreGrupo = entrada.readUTF().trim();
         
-        if (nombreGrupo.isEmpty()) {
-            salida.writeUTF("[ERROR]: El nombre del grupo no puede estar vacío.");
-            return;
-        }
-        
-        if (nombreGrupo.equalsIgnoreCase("Todos")) {
-            salida.writeUTF("[ERROR]: No puedes usar ese nombre de grupo.");
-            return;
-        }
-        
-        if (ServidorMulti.existeGrupo(nombreGrupo)) {
-            salida.writeUTF("[ERROR]: Ya existe un grupo con ese nombre.");
-            return;
-        }
+        if (!validarNombreGrupo(nombreGrupo)) return;
         
         if (ServidorMulti.crearGrupo(nombreGrupo, nombreCliente)) {
             salida.writeUTF("[SISTEMA]: ¡Grupo '" + nombreGrupo + "' creado exitosamente!");
@@ -272,6 +321,25 @@ private void enviarMensajeBienvenida() throws IOException {
         } else {
             salida.writeUTF("[ERROR]: No se pudo crear el grupo. Intenta con otro nombre.");
         }
+    }
+    
+    private boolean validarNombreGrupo(String nombreGrupo) throws IOException {
+        if (nombreGrupo.isEmpty()) {
+            salida.writeUTF("[ERROR]: El nombre del grupo no puede estar vacío.");
+            return false;
+        }
+        
+        if (nombreGrupo.equalsIgnoreCase("Todos")) {
+            salida.writeUTF("[ERROR]: No puedes usar ese nombre de grupo.");
+            return false;
+        }
+        
+        if (ServidorMulti.existeGrupo(nombreGrupo)) {
+            salida.writeUTF("[ERROR]: Ya existe un grupo con ese nombre.");
+            return false;
+        }
+        
+        return true;
     }
     
     private void eliminarGrupo() throws IOException {
@@ -283,10 +351,7 @@ private void enviarMensajeBienvenida() throws IOException {
             return;
         }
         
-        salida.writeUTF("[SISTEMA]: Tus grupos:");
-        for (String grupo : misGrupos) {
-            salida.writeUTF("  - " + grupo);
-        }
+        mostrarListaGrupos(misGrupos);
         
         salida.writeUTF("[SISTEMA]: Ingresa el nombre del grupo a eliminar:");
         String nombreGrupo = entrada.readUTF().trim();
@@ -296,6 +361,17 @@ private void enviarMensajeBienvenida() throws IOException {
             return;
         }
         
+        procesarEliminacionGrupo(nombreGrupo);
+    }
+    
+    private void mostrarListaGrupos(java.util.List<String> grupos) throws IOException {
+        salida.writeUTF("[SISTEMA]: Tus grupos:");
+        for (String grupo : grupos) {
+            salida.writeUTF("  - " + grupo);
+        }
+    }
+    
+    private void procesarEliminacionGrupo(String nombreGrupo) throws IOException {
         if (nombreGrupo.equalsIgnoreCase("Todos")) {
             salida.writeUTF("[ERROR]: No puedes eliminar el grupo 'Todos'.");
             return;
@@ -312,8 +388,6 @@ private void enviarMensajeBienvenida() throws IOException {
                 grupoActual = GRUPO_PREDETERMINADO;
                 salida.writeUTF("[SISTEMA]: Tu grupo actual ahora es: " + GRUPO_PREDETERMINADO);
             }
-            
-            // Notificar a los miembros online
             notificarEliminacionGrupo(nombreGrupo);
         } else {
             salida.writeUTF("[ERROR]: No se pudo eliminar el grupo.");
@@ -339,12 +413,8 @@ private void enviarMensajeBienvenida() throws IOException {
             return;
         }
         
-        salida.writeUTF("[SISTEMA]: === GRUPOS DISPONIBLES ===");
-        for (String grupo : gruposDisponibles) {
-            salida.writeUTF("  " + grupo);
-        }
+        mostrarGruposYSolicitarNombre(gruposDisponibles);
         
-        salida.writeUTF("[SISTEMA]: Ingresa el nombre del grupo:");
         String nombreGrupo = entrada.readUTF().trim();
         
         if (nombreGrupo.isEmpty()) {
@@ -352,6 +422,18 @@ private void enviarMensajeBienvenida() throws IOException {
             return;
         }
         
+        procesarUnionGrupo(nombreGrupo);
+    }
+    
+    private void mostrarGruposYSolicitarNombre(java.util.List<String> grupos) throws IOException {
+        salida.writeUTF("[SISTEMA]: === GRUPOS DISPONIBLES ===");
+        for (String grupo : grupos) {
+            salida.writeUTF("  " + grupo);
+        }
+        salida.writeUTF("[SISTEMA]: Ingresa el nombre del grupo:");
+    }
+    
+    private void procesarUnionGrupo(String nombreGrupo) throws IOException {
         if (!ServidorMulti.existeGrupo(nombreGrupo)) {
             salida.writeUTF("[ERROR]: El grupo '" + nombreGrupo + "' no existe.");
             return;
@@ -366,9 +448,7 @@ private void enviarMensajeBienvenida() throws IOException {
             salida.writeUTF("[SISTEMA]: ¡Te has unido al grupo '" + nombreGrupo + "'!");
             salida.writeUTF("[SISTEMA]: Usa 'cambiargrupo' para cambiar a este grupo.");
             
-            // Obtener mensajes no leídos
             int mensajesNoLeidos = ServidorMulti.contarMensajesNoLeidos(nombreCliente, nombreGrupo);
-            
             if (mensajesNoLeidos > 0) {
                 salida.writeUTF("[SISTEMA]: Tienes " + mensajesNoLeidos + " mensajes nuevos en este grupo.");
             }
@@ -386,12 +466,7 @@ private void enviarMensajeBienvenida() throws IOException {
             return;
         }
         
-        salida.writeUTF("[SISTEMA]: Tus grupos:");
-        for (String grupo : misGrupos) {
-            if (!grupo.equals("Todos")) {
-                salida.writeUTF("  - " + grupo);
-            }
-        }
+        mostrarGruposSinTodos(misGrupos);
         
         salida.writeUTF("[SISTEMA]: Ingresa el nombre del grupo:");
         String nombreGrupo = entrada.readUTF().trim();
@@ -401,6 +476,19 @@ private void enviarMensajeBienvenida() throws IOException {
             return;
         }
         
+        procesarSalidaGrupo(nombreGrupo);
+    }
+    
+    private void mostrarGruposSinTodos(java.util.List<String> grupos) throws IOException {
+        salida.writeUTF("[SISTEMA]: Tus grupos:");
+        for (String grupo : grupos) {
+            if (!grupo.equals("Todos")) {
+                salida.writeUTF("  - " + grupo);
+            }
+        }
+    }
+    
+    private void procesarSalidaGrupo(String nombreGrupo) throws IOException {
         if (nombreGrupo.equalsIgnoreCase("Todos")) {
             salida.writeUTF("[ERROR]: No puedes salir del grupo 'Todos'.");
             return;
@@ -478,6 +566,10 @@ private void enviarMensajeBienvenida() throws IOException {
             return;
         }
         
+        mostrarListaMiembros(nombreGrupo);
+    }
+    
+    private void mostrarListaMiembros(String nombreGrupo) throws IOException {
         java.util.List<String> miembros = ServidorMulti.obtenerMiembrosGrupo(nombreGrupo);
         if (miembros.isEmpty()) {
             salida.writeUTF("[SISTEMA]: El grupo no tiene miembros.");
@@ -494,61 +586,73 @@ private void enviarMensajeBienvenida() throws IOException {
         salida.writeUTF("Total: " + miembros.size() + " miembro(s)");
     }
     
-  private void cambiarGrupoActivo() throws IOException {
-    if (!verificarAutenticacion()) return;
-    
-    java.util.List<String> misGrupos = ServidorMulti.obtenerMisGrupos(nombreCliente);
-    if (misGrupos.isEmpty()) {
-        salida.writeUTF("[SISTEMA]: No perteneces a ningún grupo.");
-        return;
-    }
-    
-    salida.writeUTF("[SISTEMA]: Tus grupos:");
-    for (String grupo : misGrupos) {
-        int noLeidos = ServidorMulti.contarMensajesNoLeidos(nombreCliente, grupo);
-        String indicador = grupo.equals(grupoActual) ? " [ACTIVO]" : "";
-        String mensajes = noLeidos > 0 ? " 📬 (" + noLeidos + " nuevos)" : " ✓";
-        salida.writeUTF("  - " + grupo + indicador + mensajes);
-    }
-    
-    salida.writeUTF("[SISTEMA]: Ingresa el nombre del grupo:");
-    String nombreGrupo = entrada.readUTF().trim();
-    
-    if (nombreGrupo.isEmpty()) {
-        salida.writeUTF("[SISTEMA]: Operación cancelada.");
-        return;
-    }
-    
-    if (!ServidorMulti.esMiembroDeGrupo(nombreCliente, nombreGrupo)) {
-        salida.writeUTF("[ERROR]: No eres miembro del grupo '" + nombreGrupo + "'.");
-        return;
-    }
-    
-    grupoActual = nombreGrupo;
-    salida.writeUTF("[SISTEMA]: Grupo actual cambiado a: " + grupoActual);
-    
-    java.util.List<BaseDatos.MensajeGrupo> mensajesNoLeidos = 
-        ServidorMulti.obtenerMensajesNoLeidos(nombreCliente, grupoActual);
-    
-    if (!mensajesNoLeidos.isEmpty()) {
-        salida.writeUTF("");
-        salida.writeUTF("--------------------------------------------");
-        salida.writeUTF("   MENSAJES NO LEÍDOS (" + mensajesNoLeidos.size() + ")");
-        salida.writeUTF("--------------------------------------------");
-        salida.writeUTF("");
+    private void cambiarGrupoActivo() throws IOException {
+        if (!verificarAutenticacion()) return;
         
-        for (BaseDatos.MensajeGrupo msg : mensajesNoLeidos) {
-            salida.writeUTF("[" + grupoActual + "] " + msg.remitente + ": " + msg.mensaje);
-            // Marcar como leído
-            ServidorMulti.actualizarUltimoMensajeLeido(nombreCliente, grupoActual, msg.id);
+        java.util.List<String> misGrupos = ServidorMulti.obtenerMisGrupos(nombreCliente);
+        if (misGrupos.isEmpty()) {
+            salida.writeUTF("[SISTEMA]: No perteneces a ningún grupo.");
+            return;
         }
-        salida.writeUTF("");
-        salida.writeUTF("--------------------------------------------");
-        salida.writeUTF("");
-    } else {
-        salida.writeUTF("[SISTEMA]: ✓ No tienes mensajes nuevos en este grupo.");
+        
+        mostrarMisGruposConNoLeidos(misGrupos);
+        
+        salida.writeUTF("[SISTEMA]: Ingresa el nombre del grupo:");
+        String nombreGrupo = entrada.readUTF().trim();
+        
+        if (nombreGrupo.isEmpty()) {
+            salida.writeUTF("[SISTEMA]: Operación cancelada.");
+            return;
+        }
+        
+        procesarCambioGrupo(nombreGrupo);
     }
-}
+    
+    private void mostrarMisGruposConNoLeidos(java.util.List<String> grupos) throws IOException {
+        salida.writeUTF("[SISTEMA]: Tus grupos:");
+        for (String grupo : grupos) {
+            int noLeidos = ServidorMulti.contarMensajesNoLeidos(nombreCliente, grupo);
+            String indicador = grupo.equals(grupoActual) ? " [ACTIVO]" : "";
+            String mensajes = noLeidos > 0 ? " 📬 (" + noLeidos + " nuevos)" : " ✓";
+            salida.writeUTF("  - " + grupo + indicador + mensajes);
+        }
+    }
+    
+    private void procesarCambioGrupo(String nombreGrupo) throws IOException {
+        if (!ServidorMulti.esMiembroDeGrupo(nombreCliente, nombreGrupo)) {
+            salida.writeUTF("[ERROR]: No eres miembro del grupo '" + nombreGrupo + "'.");
+            return;
+        }
+        
+        grupoActual = nombreGrupo;
+        salida.writeUTF("[SISTEMA]: Grupo actual cambiado a: " + grupoActual);
+        
+        mostrarYMarcarMensajesNoLeidos();
+    }
+    
+    private void mostrarYMarcarMensajesNoLeidos() throws IOException {
+        java.util.List<BaseDatos.MensajeGrupo> mensajesNoLeidos = 
+            ServidorMulti.obtenerMensajesNoLeidos(nombreCliente, grupoActual);
+        
+        if (!mensajesNoLeidos.isEmpty()) {
+            salida.writeUTF("");
+            salida.writeUTF("--------------------------------------------");
+            salida.writeUTF("   MENSAJES NO LEÍDOS (" + mensajesNoLeidos.size() + ")");
+            salida.writeUTF("--------------------------------------------");
+            salida.writeUTF("");
+            
+            for (BaseDatos.MensajeGrupo msg : mensajesNoLeidos) {
+                salida.writeUTF("[" + grupoActual + "] " + msg.remitente + ": " + msg.mensaje);
+                ServidorMulti.actualizarUltimoMensajeLeido(nombreCliente, grupoActual, msg.id);
+            }
+            salida.writeUTF("");
+            salida.writeUTF("--------------------------------------------");
+            salida.writeUTF("");
+        } else {
+            salida.writeUTF("[SISTEMA]: ✓ No tienes mensajes nuevos en este grupo.");
+        }
+    }
+    
     private void mostrarGrupoActual() throws IOException {
         if (!verificarAutenticacion()) return;
         
@@ -559,8 +663,6 @@ private void enviarMensajeBienvenida() throws IOException {
             salida.writeUTF("[SISTEMA]: Tienes " + noLeidos + " mensaje(s) no leído(s).");
         }
     }
-    //Para merge se añadio sistema de grupos
-    // ==================== DESCONEXIÓN ====================
     
     private void manejarDesconexion() {
         if (nombreCliente == null) return;
@@ -600,8 +702,6 @@ private void enviarMensajeBienvenida() throws IOException {
             e.printStackTrace();
         }
     }
-    
-    // ==================== MENSAJES PRIVADOS ====================
     
     private void mostrarUsuariosYEnviarMensaje() throws IOException {
         String usuariosOnline = obtenerUsuariosOnline();
@@ -659,8 +759,6 @@ private void enviarMensajeBienvenida() throws IOException {
         }
         return true;
     }
-    
-    // ==================== BLOQUEO DE USUARIOS ====================
     
     private void mostrarUsuariosYBloquear() throws IOException {
         if (!verificarAutenticacion()) return;
@@ -764,8 +862,6 @@ private void enviarMensajeBienvenida() throws IOException {
             .reduce((a, b) -> a + ", " + b)
             .orElse("");
     }
-    
-    // ==================== JUEGO DEL GATO ====================
     
     private void invitarAJugarGato() throws IOException {
         if (!verificarAutenticacion()) return;
@@ -1093,8 +1189,6 @@ private void enviarMensajeBienvenida() throws IOException {
         System.out.println(nombreCliente + " se rindió en la partida contra " + oponente);
     }
     
-    // ==================== RANKING ====================
-    
     private void mostrarRankingGeneral() throws IOException {
         if (!verificarAutenticacion()) return;
         
@@ -1168,35 +1262,37 @@ private void enviarMensajeBienvenida() throws IOException {
         if (stats.totalPartidas == 0) {
             salida.writeUTF("No hay partidas registradas entre estos jugadores.");
         } else {
-            salida.writeUTF("Total de partidas: " + stats.totalPartidas);
-            salida.writeUTF("");
-            salida.writeUTF(nombreCliente + ": " + stats.victoriasJ1 + " victorias (" + 
-                           String.format("%.1f", stats.porcentajeJ1) + "%)");
-            salida.writeUTF(oponente + ": " + stats.victoriasJ2 + " victorias (" + 
-                           String.format("%.1f", stats.porcentajeJ2) + "%)");
-            salida.writeUTF("Empates: " + stats.empates);
-            salida.writeUTF("");
-            
-            if (stats.victoriasJ1 > stats.victoriasJ2) {
-                salida.writeUTF("¡Tienes ventaja sobre " + oponente + "!");
-            } else if (stats.victoriasJ2 > stats.victoriasJ1) {
-                salida.writeUTF(oponente + " tiene ventaja sobre ti.");
-            } else {
-                salida.writeUTF("Están empatados en victorias.");
-            }
+            mostrarDetallesEstadisticas(stats, oponente);
         }
         salida.writeUTF("");
     }
     
-    // ==================== AYUDA ====================
+    private void mostrarDetallesEstadisticas(BaseDatos.EstadisticasEnfrentamiento stats, String oponente) throws IOException {
+        salida.writeUTF("Total de partidas: " + stats.totalPartidas);
+        salida.writeUTF("");
+        salida.writeUTF(nombreCliente + ": " + stats.victoriasJ1 + " victorias (" + 
+                       String.format("%.1f", stats.porcentajeJ1) + "%)");
+        salida.writeUTF(oponente + ": " + stats.victoriasJ2 + " victorias (" + 
+                       String.format("%.1f", stats.porcentajeJ2) + "%)");
+        salida.writeUTF("Empates: " + stats.empates);
+        salida.writeUTF("");
+        
+        if (stats.victoriasJ1 > stats.victoriasJ2) {
+            salida.writeUTF("¡Tienes ventaja sobre " + oponente + "!");
+        } else if (stats.victoriasJ2 > stats.victoriasJ1) {
+            salida.writeUTF(oponente + " tiene ventaja sobre ti.");
+        } else {
+            salida.writeUTF("Están empatados en victorias.");
+        }
+    }
     
     private void mostrarAyuda() throws IOException {
         salida.writeUTF("=== COMANDOS DISPONIBLES ===");
         salida.writeUTF("");
         salida.writeUTF("AUTENTICACIÓN:");
         salida.writeUTF("  registrar - Crear una nueva cuenta");
-        salida.writeUTF("  login - Iniciar sesión");
-        salida.writeUTF("  logout - Cerrar sesión");
+        salida.writeUTF("  iniciar - Iniciar sesión");
+        salida.writeUTF("  salir - Cerrar sesión");
         salida.writeUTF("");
         salida.writeUTF("GRUPOS:");
         salida.writeUTF("  creargrupo - Crear un nuevo grupo");
@@ -1223,7 +1319,7 @@ private void enviarMensajeBienvenida() throws IOException {
         salida.writeUTF("  ranking - Ver ranking general de jugadores");
         salida.writeUTF("  vs - Ver estadísticas entre dos jugadores");
         salida.writeUTF("");
-        salida.writeUTF("  help - Mostrar esta ayuda");
+        salida.writeUTF("  ayuda - Mostrar esta ayuda");
     }
     
     private void mostrarAyudaGato() throws IOException {
@@ -1258,9 +1354,13 @@ private void enviarMensajeBienvenida() throws IOException {
         salida.writeUTF("NOTA: Mientras juegas NO recibirás mensajes del chat general.");
     }
     
-    // ==================== AUTENTICACIÓN ====================
-    
     private void registrarUsuario() throws IOException {
+        if (autenticado) {
+            salida.writeUTF("[ERROR]: Ya tienes una sesión activa como: " + nombreCliente);
+            salida.writeUTF("[ERROR]: Debes escribir 'salir' primero para cerrar tu sesión actual.");
+            return;
+        }
+        
         salida.writeUTF("[SISTEMA]: === REGISTRO ===");
         salida.writeUTF("[SISTEMA]: Ingresa tu nuevo nombre de usuario:");
         
@@ -1295,27 +1395,31 @@ private void enviarMensajeBienvenida() throws IOException {
         return disponible;
     }
     
-  private void completarRegistro(String nuevoNombre, String password) throws IOException {
-    ServidorMulti.registrarUsuario(nuevoNombre, password);
-    
-    String nombreAnterior = nombreCliente;
-    cambiarNombreCliente(nuevoNombre);
-    autenticado = true;
-    mensajesEnviados = 0;
-    grupoActual = GRUPO_PREDETERMINADO;
-    
-    salida.writeUTF("[SISTEMA]: ¡Registro exitoso! Ahora eres: " + nombreCliente);
-    salida.writeUTF("[SISTEMA]: Has sido añadido automáticamente al grupo 'Todos'.");
-    salida.writeUTF("[SISTEMA]: Tu grupo actual es: " + grupoActual);
-    System.out.println(nombreAnterior + " se registró como: " + nombreCliente);
-    
-    mostrarMensajesNoLeidosAlEntrar();
-    
-    // Enviar notificación al grupo "Todos"
-    notificarUnionGrupo(GRUPO_PREDETERMINADO);
-}
+    private void completarRegistro(String nuevoNombre, String password) throws IOException {
+        ServidorMulti.registrarUsuario(nuevoNombre, password);
+        
+        String nombreAnterior = nombreCliente;
+        cambiarNombreCliente(nuevoNombre);
+        autenticado = true;
+        mensajesEnviados = 0;
+        grupoActual = GRUPO_PREDETERMINADO;
+        
+        salida.writeUTF("[SISTEMA]: ¡Registro exitoso! Ahora eres: " + nombreCliente);
+        salida.writeUTF("[SISTEMA]: Has sido añadido automáticamente al grupo 'Todos'.");
+        salida.writeUTF("[SISTEMA]: Tu grupo actual es: " + grupoActual);
+        System.out.println(nombreAnterior + " se registró como: " + nombreCliente);
+        
+        mostrarMensajesNoLeidosAlEntrar();
+        notificarUnionGrupo(GRUPO_PREDETERMINADO);
+    }
     
     private void iniciarSesion() throws IOException {
+        if (autenticado) {
+            salida.writeUTF("[ERROR]: Ya tienes una sesión activa como: " + nombreCliente);
+            salida.writeUTF("[ERROR]: Debes escribir 'salir' primero para cerrar tu sesión actual.");
+            return;
+        }
+        
         salida.writeUTF("[SISTEMA]: === INICIO DE SESIÓN ===");
         salida.writeUTF("[SISTEMA]: Ingresa tu nombre de usuario:");
         String nombre = entrada.readUTF().trim();
@@ -1329,131 +1433,120 @@ private void enviarMensajeBienvenida() throws IOException {
         }
         
         if (!ServidorMulti.nombreDisponible(nombre)) {
-            salida.writeUTF("[ERROR]: El usuario ya está conectado en otra sesión.");
+            salida.writeUTF("[ERROR]: Este usuario ya tiene una sesión activa en otro dispositivo.");
+            salida.writeUTF("[ERROR]: Debes cerrar sesión desde el otro dispositivo primero.");
+            salida.writeUTF("[INFO]: Si no fuiste tú quien inició sesión, tu cuenta puede estar comprometida.");
             return;
         }
         
         completarInicioSesion(nombre);
     }
+    
     private void completarInicioSesion(String nombre) throws IOException {
-    String nombreAnterior = nombreCliente;
-    cambiarNombreCliente(nombre);
-    autenticado = true;
-    mensajesEnviados = 0;
-    grupoActual = GRUPO_PREDETERMINADO;
-    
-    salida.writeUTF("[SISTEMA]: ¡Inicio de sesión exitoso! Bienvenido de nuevo, " + nombreCliente);
-    salida.writeUTF("[SISTEMA]: Tu grupo actual es: " + grupoActual);
-    System.out.println(nombreAnterior + " inició sesión como: " + nombreCliente);
-    
-    // NUEVO: Mostrar resumen y mensajes no leídos de todos los grupos
-    mostrarResumenMensajesNoLeidos();
-    
-    // NUEVO: Mostrar mensajes no leídos del grupo actual
-    mostrarMensajesNoLeidosAlEntrar();
-    
-    // Notificar conexión solo al grupo actual
-    notificarUnionGrupo(grupoActual);
-}
-   
+        String nombreAnterior = nombreCliente;
+        cambiarNombreCliente(nombre);
+        autenticado = true;
+        mensajesEnviados = 0;
+        grupoActual = GRUPO_PREDETERMINADO;
+        
+        salida.writeUTF("[SISTEMA]: ¡Inicio de sesión exitoso! Bienvenido de nuevo, " + nombreCliente);
+        salida.writeUTF("[SISTEMA]: Tu grupo actual es: " + grupoActual);
+        System.out.println(nombreAnterior + " inició sesión como: " + nombreCliente);
+        
+        mostrarResumenMensajesNoLeidos();
+        mostrarMensajesNoLeidosAlEntrar();
+        notificarUnionGrupo(grupoActual);
+    }
+
     private void notificarUnionGrupo(String nombreGrupo) {
         java.util.List<String> miembros = ServidorMulti.obtenerMiembrosGrupo(nombreGrupo);
         String mensaje = "[SISTEMA]: " + nombreCliente + " se ha conectado.";
         
         for (String miembro : miembros) {
-            if (!miembro.equals(nombreCliente)) {
-                UnCliente cliente = ServidorMulti.clientes.get(miembro);
-                if (cliente != null && !estaEnPartidaActiva(miembro)) {
-                    // Solo notificar si está en el mismo grupo
-                    if (cliente.grupoActual.equals(nombreGrupo)) {
-                        enviarSafe(cliente, mensaje);
-                    }
+            if (miembro.equals(nombreCliente)) continue;
+            
+            UnCliente cliente = ServidorMulti.clientes.get(miembro);
+            if (cliente != null && !estaEnPartidaActiva(miembro)) {
+                if (cliente.grupoActual.equals(nombreGrupo)) {
+                    enviarSafe(cliente, mensaje);
                 }
             }
         }
     }
+    
     private void mostrarResumenMensajesNoLeidos() throws IOException {
-    try {
-        java.util.List<String> misGrupos = ServidorMulti.obtenerMisGrupos(nombreCliente);
-        int totalNoLeidos = 0;
-        java.util.List<String> gruposConMensajes = new java.util.ArrayList<>();
-        
-        for (String grupo : misGrupos) {
-            int noLeidos = ServidorMulti.contarMensajesNoLeidos(nombreCliente, grupo);
-            if (noLeidos > 0) {
-                totalNoLeidos += noLeidos;
-                gruposConMensajes.add(grupo + " (" + noLeidos + ")");
-            }
-        }
-        
-        if (totalNoLeidos > 0) {
-            salida.writeUTF("");
-            salida.writeUTF("--------------------------------------------");
-            salida.writeUTF("|   TIENES " + totalNoLeidos + " MENSAJE(S) NUEVO(S)        ║");
-            salida.writeUTF("--------------------------------------------");
+        try {
+            java.util.List<String> misGrupos = ServidorMulti.obtenerMisGrupos(nombreCliente);
+            int totalNoLeidos = 0;
+            java.util.List<String> gruposConMensajes = new java.util.ArrayList<>();
             
-            for (String info : gruposConMensajes) {
-                salida.writeUTF("  📁 " + info);
+            for (String grupo : misGrupos) {
+                int noLeidos = ServidorMulti.contarMensajesNoLeidos(nombreCliente, grupo);
+                if (noLeidos > 0) {
+                    totalNoLeidos += noLeidos;
+                    gruposConMensajes.add(grupo + " (" + noLeidos + ")");
+                }
             }
-            salida.writeUTF("");
-        } else {
-            salida.writeUTF("[SISTEMA]: No tienes mensajes nuevos. ✓");
-        }
-    } catch (Exception e) {
-        System.err.println("Error al mostrar resumen: " + e.getMessage());
-    }
-}
-
-/**
- * Muestra automáticamente los mensajes NO LEÍDOS del grupo actual
- * y los marca como leídos
- */
-private void mostrarMensajesNoLeidosAlEntrar() throws IOException {
-    try {
-        // Obtener mensajes no leídos del grupo actual
-        java.util.List<BaseDatos.MensajeGrupo> mensajesNoLeidos = 
-            ServidorMulti.obtenerMensajesNoLeidos(nombreCliente, grupoActual);
-        
-        if (!mensajesNoLeidos.isEmpty()) {
-            salida.writeUTF("");
-            salida.writeUTF("--------------------------------------------");
-            salida.writeUTF("  | MENSAJES NO LEÍDOS EN '" + grupoActual + "' (" + mensajesNoLeidos.size() + ")");
-            salida.writeUTF("--------------------------------------------");
-            salida.writeUTF("");
             
-            // Mostrar cada mensaje no leído
-            for (BaseDatos.MensajeGrupo msg : mensajesNoLeidos) {
-                salida.writeUTF("[" + grupoActual + "] " + msg.remitente + ": " + msg.mensaje);
+            if (totalNoLeidos > 0) {
+                salida.writeUTF("");
+                salida.writeUTF("--------------------------------------------");
+                salida.writeUTF("   TIENES " + totalNoLeidos + " MENSAJE(S) NUEVO(S)");
+                salida.writeUTF("--------------------------------------------");
                 
-                // Marcar como leído automáticamente
-                ServidorMulti.actualizarUltimoMensajeLeido(nombreCliente, grupoActual, msg.id);
+                for (String info : gruposConMensajes) {
+                    salida.writeUTF("  📁 " + info);
+                }
+                salida.writeUTF("");
+            } else {
+                salida.writeUTF("[SISTEMA]: No tienes mensajes nuevos. ✓");
             }
-            
-            salida.writeUTF("");
-            salida.writeUTF("--------------------------------------------");
-            salida.writeUTF("  ✓ Todos los mensajes han sido marcados como leídos");
-            salida.writeUTF("--------------------------------------------");
-            salida.writeUTF("");
-            
-        } else {
-            salida.writeUTF("");
-            salida.writeUTF("[SISTEMA]: ✓ No tienes mensajes nuevos en '" + grupoActual + "'.");
-            salida.writeUTF("");
+        } catch (Exception e) {
+            System.err.println("Error al mostrar resumen: " + e.getMessage());
         }
-    } catch (Exception e) {
-        System.err.println("Error al mostrar mensajes no leídos: " + e.getMessage());
-        salida.writeUTF("[ERROR]: No se pudieron cargar los mensajes no leídos.");
     }
-}
+
+    private void mostrarMensajesNoLeidosAlEntrar() throws IOException {
+        try {
+            java.util.List<BaseDatos.MensajeGrupo> mensajesNoLeidos = 
+                ServidorMulti.obtenerMensajesNoLeidos(nombreCliente, grupoActual);
+            
+            if (!mensajesNoLeidos.isEmpty()) {
+                salida.writeUTF("");
+                salida.writeUTF("--------------------------------------------");
+                salida.writeUTF("   MENSAJES NO LEÍDOS EN '" + grupoActual + "' (" + mensajesNoLeidos.size() + ")");
+                salida.writeUTF("--------------------------------------------");
+                salida.writeUTF("");
+                
+                for (BaseDatos.MensajeGrupo msg : mensajesNoLeidos) {
+                    salida.writeUTF("[" + grupoActual + "] " + msg.remitente + ": " + msg.mensaje);
+                    ServidorMulti.actualizarUltimoMensajeLeido(nombreCliente, grupoActual, msg.id);
+                }
+                
+                salida.writeUTF("");
+                salida.writeUTF("--------------------------------------------");
+                salida.writeUTF("  ✓ Todos los mensajes han sido marcados como leídos");
+                salida.writeUTF("--------------------------------------------");
+                salida.writeUTF("");
+            } else {
+                salida.writeUTF("");
+                salida.writeUTF("[SISTEMA]: ✓ No tienes mensajes nuevos en '" + grupoActual + "'.");
+                salida.writeUTF("");
+            }
+        } catch (Exception e) {
+            System.err.println("Error al mostrar mensajes no leídos: " + e.getMessage());
+            salida.writeUTF("[ERROR]: No se pudieron cargar los mensajes no leídos.");
+        }
+    }
     private void cerrarSesion() throws IOException {
         if (!autenticado) {
             salida.writeUTF("[SISTEMA]: No has iniciado sesión.");
+            salida.writeUTF("[INFO]: Ya eres un usuario invitado (" + nombreCliente + ")");
             return;
         }
         
         String nombreAnterior = nombreCliente;
         
-        // Notificar desconexión al grupo actual
         notificarDesconexionGrupo(grupoActual);
         
         cambiarNombreCliente(PREFIJO_INVITADO + System.currentTimeMillis());
@@ -1461,8 +1554,9 @@ private void mostrarMensajesNoLeidosAlEntrar() throws IOException {
         mensajesEnviados = 0;
         grupoActual = GRUPO_PREDETERMINADO;
         
-        salida.writeUTF("[SISTEMA]: Has cerrado sesión. Ahora eres: " + nombreCliente);
-        salida.writeUTF("[SISTEMA]: Tienes 3 mensajes gratuitos. Escribe 'login' para iniciar sesión nuevamente.");
+        salida.writeUTF("[SISTEMA]: Has cerrado sesión correctamente.");
+        salida.writeUTF("[SISTEMA]: Ahora eres: " + nombreCliente);
+        salida.writeUTF("[SISTEMA]: Tienes 3 mensajes gratuitos. Escribe 'iniciar' para iniciar sesión nuevamente.");
         System.out.println(nombreAnterior + " cerró sesión y ahora es: " + nombreCliente);
     }
     
@@ -1471,19 +1565,16 @@ private void mostrarMensajesNoLeidosAlEntrar() throws IOException {
         String mensaje = "[SISTEMA]: " + nombreCliente + " se ha desconectado.";
         
         for (String miembro : miembros) {
-            if (!miembro.equals(nombreCliente)) {
-                UnCliente cliente = ServidorMulti.clientes.get(miembro);
-                if (cliente != null && !estaEnPartidaActiva(miembro)) {
-                    // Solo notificar si está en el mismo grupo
-                    if (cliente.grupoActual.equals(nombreGrupo)) {
-                        enviarSafe(cliente, mensaje);
-                    }
+            if (miembro.equals(nombreCliente)) continue;
+            
+            UnCliente cliente = ServidorMulti.clientes.get(miembro);
+            if (cliente != null && !estaEnPartidaActiva(miembro)) {
+                if (cliente.grupoActual.equals(nombreGrupo)) {
+                    enviarSafe(cliente, mensaje);
                 }
             }
         }
     }
-    
-    // ==================== UTILIDADES ====================
     
     private boolean verificarAutenticacion() throws IOException {
         if (!autenticado) salida.writeUTF("[ERROR]: Debes estar autenticado para usar este comando.");
@@ -1497,8 +1588,6 @@ private void mostrarMensajesNoLeidosAlEntrar() throws IOException {
         }
         return false;
     }
-    
-    // ==================== INTERFAZ FUNCIONAL ====================
     
     @FunctionalInterface
     private interface ComandoHandler {
