@@ -133,7 +133,7 @@ public class UnCliente implements Runnable {
     private boolean verificarLimiteMensajes() throws IOException {
         boolean limiteAlcanzado = !autenticado && mensajesEnviados >= MENSAJES_GRATUITOS;
         if (limiteAlcanzado) {
-            salida.writeUTF("[SISTEMA]: Has alcanzado el límite de 3 mensajes.");
+            salida.writeUTF("[SISTEMA]: Has alcanzado el límite de "+MENSAJES_GRATUITOS+" mensajes.");
             salida.writeUTF("[SISTEMA]: Escribe 'registrar' para crear una cuenta o 'iniciar' para iniciar sesión.");
         }
         return !limiteAlcanzado;
@@ -189,7 +189,7 @@ public class UnCliente implements Runnable {
         int restantes = MENSAJES_GRATUITOS - mensajesEnviados;
         String mensajeSistema = restantes > 0 
             ? "[SISTEMA]: Mensaje enviado. Te quedan " + restantes + " mensajes."
-            : "[SISTEMA]: Has usado tus 3 mensajes gratuitos. Escribe 'registrar' o 'iniciar' para continuar.";
+            : "[SISTEMA]: Has usado tus" +MENSAJES_GRATUITOS+" mensajes gratuitos. Escribe 'registrar' o 'iniciar' para continuar.";
         salida.writeUTF(mensajeSistema);
     }
     
@@ -279,7 +279,7 @@ public class UnCliente implements Runnable {
 
     private void enviarMensajeBienvenida() throws IOException {
         salida.writeUTF("=== BIENVENIDO AL CHAT ===");
-        salida.writeUTF("Puedes enviar 3 mensajes de prueba antes de registrarte.");
+        salida.writeUTF("Puedes enviar "+MENSAJES_GRATUITOS +" mensajes de prueba antes de registrarte.");
         salida.writeUTF("Escribe 'registrar' para crear una cuenta o 'iniciar' para iniciar sesión.");
         salida.writeUTF("Escribe 'salir' para cerrar sesión.");
         salida.writeUTF("Escribe 'ayuda' para ver todos los comandos disponibles.");
