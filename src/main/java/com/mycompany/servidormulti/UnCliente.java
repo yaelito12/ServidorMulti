@@ -163,25 +163,27 @@ public class UnCliente implements Runnable {
             });
     }  
     
-    private void enviarMensajeInvitado(String mensaje) throws IOException {
-        String mensajeCompleto = "[Todos] " + nombreCliente + ": " + mensaje;
-        java.util.List<String> miembros = ServidorMulti.obtenerMiembrosGrupo(GRUPO_PREDETERMINADO);
+private void enviarMensajeInvitado(String mensaje) throws IOException {
+    String mensajeCompleto = "[Todos] " + nombreCliente + ": " + mensaje;
+    
+
+    for (UnCliente cliente : ServidorMulti.clientes.values()) {
+
+        if (cliente.nombreCliente.equals(nombreCliente)) continue;
+        if (estaEnPartidaActiva(cliente.nombreCliente)) continue;
         
-        for (String miembro : miembros) {
-            if (miembro.equals(nombreCliente)) continue;
-            
-            UnCliente cliente = ServidorMulti.clientes.get(miembro);
-            if (cliente != null && !estaEnPartidaActiva(miembro)) {
-                if (cliente.grupoActual.equals(GRUPO_PREDETERMINADO)) {
-                    enviarSafe(cliente, mensajeCompleto);
-                } else {
-                    enviarSafe(cliente, "[NOTIFICACIÓN]: Nuevo mensaje en 'Todos'");
-                }
-            }
+      
+        if (cliente.grupoActual.equals(GRUPO_PREDETERMINADO)) {
+            enviarSafe(cliente, mensajeCompleto);
+        } else {
+      
+            enviarSafe(cliente, "[NOTIFICACIÓN]: Nuevo mensaje en 'Todos'");
         }
-        salida.writeUTF("[Todos] Tú (" + nombreCliente + "): " + mensaje);
     }
     
+    // Confirmar envío al remitente
+    salida.writeUTF("[Todos] Tú (" + nombreCliente + "): " + mensaje);
+}
     private void actualizarContadorMensajes() throws IOException {
         if (autenticado) return;
         
