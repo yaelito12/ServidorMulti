@@ -224,26 +224,53 @@ private void enviarMensajeInvitado(String mensaje) throws IOException {
         }
     }
     
-    private void enviarMensajeAGrupo(String mensaje) throws IOException {
-        if (!autenticado) {
-            salida.writeUTF("[ERROR]: Debes estar autenticado para enviar mensajes a grupos.");
-            return;
-        }
-        
-        if (!ServidorMulti.esMiembroDeGrupo(nombreCliente, grupoActual)) {
-            salida.writeUTF("[ERROR]: No eres miembro del grupo '" + grupoActual + "'.");
-            return;
-        }
-        
-        long idMensaje = ServidorMulti.guardarMensajeGrupo(grupoActual, nombreCliente, mensaje);
-        
-        if (idMensaje > 0) {
-            ServidorMulti.actualizarUltimoMensajeLeido(nombreCliente, grupoActual, idMensaje);
-        }
-        
-        distribuirMensajeGrupo(mensaje, idMensaje);
+  private void enviarMensajeAGrupo(String mensaje) throws IOException {
+    if (!autenticado) {
+        salida.writeUTF("[ERROR]: Debes estar autenticado para enviar mensajes a grupos.");
+        return;
     }
     
+    if (!ServidorMulti.esMiembroDeGrupo(nombreCliente, grupoActual)) {
+        salida.writeUTF("[ERROR]: No eres miembro del grupo '" + grupoActual + "'.");
+        return;
+    }
+    
+    long idMensaje = ServidorMulti.guardarMensajeGrupo(grupoActual, nombreCliente, mensaje);
+    
+    if (idMensaje > 0) {
+        ServidorMulti.actualizarUltimoMensajeLeido(nombreCliente, grupoActual, idMensaje);
+    }
+    
+  
+    if (grupoActual.equals(GRUPO_PREDETERMINADO)) {
+        distribuirMensajeATodos(mensaje);
+    } else {
+        distribuirMensajeGrupo(mensaje, idMensaje);
+    }
+}
+    private void distribuirMensajeATodos(String mensaje) throws IOException {
+    String mensajeCompleto = "[" + grupoActual + "] " + nombreCliente + ": " + mensaje;
+    
+ 
+    for (UnCliente cliente : ServidorMulti.clientes.values()) {
+
+        if (cliente.nombreCliente.equals(nombreCliente)) continue;
+        
+ 
+        if (estaEnPartidaActiva(cliente.nombreCliente)) continue;
+        
+
+        if (cliente.grupoActual.equals(GRUPO_PREDETERMINADO)) {
+            enviarSafe(cliente, mensajeCompleto);
+        } else {
+
+            enviarSafe(cliente, "[NOTIFICACIÓN]: Nuevo mensaje en '" + grupoActual + "'");
+        }
+    }
+    
+    // Confirmar envío al remitente
+    salida.writeUTF("[" + grupoActual + "] Tú: " + mensaje);
+}
     private void distribuirMensajeGrupo(String mensaje, long idMensaje) throws IOException {
         String mensajeCompleto = "[" + grupoActual + "] " + nombreCliente + ": " + mensaje;
         java.util.List<String> miembros = ServidorMulti.obtenerMiembrosGrupo(grupoActual);
