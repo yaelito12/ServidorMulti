@@ -2,9 +2,11 @@ package clientemulti;
  
 import java.io.BufferedReader;
 import java.io.DataOutputStream;
+import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.Socket;
+import java.net.SocketException;
  
 public class ParaMandar implements Runnable {
     private final BufferedReader teclado = new BufferedReader(new InputStreamReader(System.in));
@@ -32,8 +34,19 @@ public class ParaMandar implements Runnable {
                     break;
                 }
             }
-        } catch (IOException ex) {
-            System.out.println("Error en ParaMandar: " + ex.getMessage());
+        } catch (SocketException e) {
+            System.out.println("Error: La conexión con el servidor se ha perdido.");
+        } catch (EOFException e) {
+            System.out.println("Error: El servidor ha cerrado la conexión inesperadamente.");
+        } catch (IOException e) {
+            System.out.println("Error: No se pudo enviar el mensaje. Verifica la conexión con el servidor.");
+        } catch (Exception e) {
+            System.out.println("Error inesperado al intentar enviar el mensaje.");
+        } finally {
+            try {
+                if (teclado != null) teclado.close();
+                if (salida != null) salida.close();
+            } catch (IOException ignore) {}
         }
     }
 }

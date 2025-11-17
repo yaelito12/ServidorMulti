@@ -22,7 +22,6 @@ public class ServidorMulti {
         
         try (ServerSocket servidorSocket = new ServerSocket(puerto)) {
             System.out.println("Servidor iniciado en el puerto " + puerto);
-            System.out.println("Sistema de autenticación activado: 3 mensajes gratuitos");
             System.out.println("Sistema de bloqueo activado");
             System.out.println("Sistema de juego Gato activado");
             System.out.println("Sistema de ranking activado");
@@ -36,7 +35,7 @@ public class ServidorMulti {
                 hilo.start();
             }
         } catch (IOException e) {
-            System.out.println("Error en el servidor: " + e.getMessage());
+            System.out.println("Error en el servidor: No se pudo iniciar en el puerto " + puerto);
         }
     }
     
@@ -85,7 +84,7 @@ public class ServidorMulti {
     
     private static void cargarUsuariosDelBD() {
         usuarios = bd.cargarTodosLosUsuarios();
-        System.out.println("Usuarios cargados de la BD: " + usuarios.size());
+        System.out.println("Usuarios cargados de la base de datos: " + usuarios.size());
     }
     
    
