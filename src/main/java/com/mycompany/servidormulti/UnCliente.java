@@ -39,19 +39,29 @@ public class UnCliente implements Runnable {
         }
     }
     
-    private void procesarComandos() throws IOException {
-        while (true) {
-            String mensaje = entrada.readUTF();
-            
+ private void procesarComandos() throws IOException {
+    while (true) {
+        String mensaje = entrada.readUTF().trim();
+
+        if (mensaje.isEmpty()) {
+            continue;
+        }
+        
+       
+        if (mensaje.startsWith("/")) {
             ComandoHandler handler = obtenerHandlerComando(mensaje);
             if (handler.ejecutar()) continue;
             
-            if (!verificarLimiteMensajes()) continue;
-            
-            procesarMensajeRegular(mensaje);
+         
+            salida.writeUTF("[ERROR]: Comando no reconocido. Escribe '/ayuda' para ver los comandos disponibles.");
+            continue; 
         }
+        
+        if (!verificarLimiteMensajes()) continue;
+        
+        procesarMensajeRegular(mensaje);
     }
-    
+}
     private ComandoHandler obtenerHandlerComando(String mensaje) {
         String cmd = mensaje.toLowerCase();
         
@@ -213,22 +223,25 @@ private ComandoHandler obtenerHandlerAutenticado(String cmd, String mensaje) {
             });
     }  
     
-    private void enviarMensajeInvitado(String mensaje) throws IOException {
-        String mensajeCompleto = "[Todos] " + nombreCliente + ": " + mensaje;
+private void enviarMensajeInvitado(String mensaje) throws IOException {
+    String mensajeCompleto = "[Todos] " + nombreCliente + ": " + mensaje;
+    
+    for (UnCliente cliente : ServidorMulti.clientes.values()) {
+        if (cliente.nombreCliente.equals(nombreCliente)) continue;
+        if (estaEnPartidaActiva(cliente.nombreCliente)) continue;
         
-        for (UnCliente cliente : ServidorMulti.clientes.values()) {
-            if (cliente.nombreCliente.equals(nombreCliente)) continue;
-            if (estaEnPartidaActiva(cliente.nombreCliente)) continue;
-            
-            if (cliente.grupoActual.equals(GRUPO_PREDETERMINADO)) {
-                enviarSafe(cliente, mensajeCompleto);
-            } else {
-                enviarSafe(cliente, "[NOTIFICACIÓN]: Nuevo mensaje en 'Todos'");
-            }
+        if (ServidorMulti.estasBloqueado(nombreCliente, cliente.nombreCliente)) continue;
+        if (ServidorMulti.estasBloqueado(cliente.nombreCliente, nombreCliente)) continue;
+        
+        if (cliente.grupoActual.equals(GRUPO_PREDETERMINADO)) {
+            enviarSafe(cliente, mensajeCompleto);
+        } else {
+            enviarSafe(cliente, "[NOTIFICACIÓN]: Nuevo mensaje en 'Todos'");
         }
-        
-        salida.writeUTF("[Todos] Tú (" + nombreCliente + "): " + mensaje);
     }
+    
+    salida.writeUTF("[Todos] Tú (" + nombreCliente + "): " + mensaje);
+}
     private void actualizarContadorMensajes() throws IOException {
         if (autenticado) return;
         
@@ -293,42 +306,48 @@ private ComandoHandler obtenerHandlerAutenticado(String cmd, String mensaje) {
         }
     }
     
-    private void distribuirMensajeATodos(String mensaje) throws IOException {
-        String mensajeCompleto = "[" + grupoActual + "] " + nombreCliente + ": " + mensaje;
+private void distribuirMensajeATodos(String mensaje) throws IOException {
+    String mensajeCompleto = "[" + grupoActual + "] " + nombreCliente + ": " + mensaje;
+    
+    for (UnCliente cliente : ServidorMulti.clientes.values()) {
+        if (cliente.nombreCliente.equals(nombreCliente)) continue;
+        if (estaEnPartidaActiva(cliente.nombreCliente)) continue;
         
-        for (UnCliente cliente : ServidorMulti.clientes.values()) {
-            if (cliente.nombreCliente.equals(nombreCliente)) continue;
-            if (estaEnPartidaActiva(cliente.nombreCliente)) continue;
-            
-            if (cliente.grupoActual.equals(GRUPO_PREDETERMINADO)) {
+        if (ServidorMulti.estasBloqueado(nombreCliente, cliente.nombreCliente)) continue;
+        if (ServidorMulti.estasBloqueado(cliente.nombreCliente, nombreCliente)) continue;
+        
+        if (cliente.grupoActual.equals(GRUPO_PREDETERMINADO)) {
+            enviarSafe(cliente, mensajeCompleto);
+        } else {
+            enviarSafe(cliente, "[NOTIFICACIÓN]: Nuevo mensaje en '" + grupoActual + "'");
+        }
+    }
+    
+    salida.writeUTF("[" + grupoActual + "] Tú: " + mensaje);
+}
+private void distribuirMensajeGrupo(String mensaje, long idMensaje) throws IOException {
+    String mensajeCompleto = "[" + grupoActual + "] " + nombreCliente + ": " + mensaje;
+    java.util.List<String> miembros = ServidorMulti.obtenerMiembrosGrupo(grupoActual);
+    
+    for (String miembro : miembros) {
+        if (miembro.equals(nombreCliente)) continue;
+        
+        if (ServidorMulti.estasBloqueado(nombreCliente, miembro)) continue;
+        if (ServidorMulti.estasBloqueado(miembro, nombreCliente)) continue;
+        
+        UnCliente cliente = ServidorMulti.clientes.get(miembro);
+        if (cliente != null && !estaEnPartidaActiva(miembro)) {
+            if (cliente.grupoActual.equals(grupoActual)) {
                 enviarSafe(cliente, mensajeCompleto);
+                if (idMensaje > 0) {
+                    ServidorMulti.actualizarUltimoMensajeLeido(miembro, grupoActual, idMensaje);
+                }
             } else {
                 enviarSafe(cliente, "[NOTIFICACIÓN]: Nuevo mensaje en '" + grupoActual + "'");
             }
         }
-        
-        salida.writeUTF("[" + grupoActual + "] Tú: " + mensaje);
     }
-    private void distribuirMensajeGrupo(String mensaje, long idMensaje) throws IOException {
-        String mensajeCompleto = "[" + grupoActual + "] " + nombreCliente + ": " + mensaje;
-        java.util.List<String> miembros = ServidorMulti.obtenerMiembrosGrupo(grupoActual);
-        
-        for (String miembro : miembros) {
-            if (miembro.equals(nombreCliente)) continue;
-            
-            UnCliente cliente = ServidorMulti.clientes.get(miembro);
-            if (cliente != null && !estaEnPartidaActiva(miembro)) {
-                if (cliente.grupoActual.equals(grupoActual)) {
-                    enviarSafe(cliente, mensajeCompleto);
-                    if (idMensaje > 0) {
-                        ServidorMulti.actualizarUltimoMensajeLeido(miembro, grupoActual, idMensaje);
-                    }
-                } else {
-                    enviarSafe(cliente, "[NOTIFICACIÓN]: Nuevo mensaje en '" + grupoActual + "'");
-                }
-            }
-        }
-    }
+}
     
     private void enviarSafe(UnCliente cliente, String mensaje) {
         try {
@@ -338,18 +357,22 @@ private ComandoHandler obtenerHandlerAutenticado(String cmd, String mensaje) {
         }
     }
     
-    private void inicializarCliente() throws IOException {
-        enviarMensajeBienvenida();
-        nombreCliente = PREFIJO_INVITADO + System.currentTimeMillis();
-        ServidorMulti.registrarCliente(nombreCliente, this);
-    }
+   private void inicializarCliente() throws IOException {
+    nombreCliente = PREFIJO_INVITADO + System.currentTimeMillis();
+    ServidorMulti.registrarCliente(nombreCliente, this);
+    enviarMensajeBienvenida();
+}
 
     private void enviarMensajeBienvenida() throws IOException {
         salida.writeUTF("=== BIENVENIDO AL CHAT ===");
+        salida.writeUTF("Actualmente eres un usuario INVITADO (" + nombreCliente + ")");
         salida.writeUTF("Puedes enviar "+MENSAJES_GRATUITOS +" mensajes de prueba antes de registrarte.");
         salida.writeUTF("Escribe '/registrar' para crear una cuenta o '/iniciar' para iniciar sesión.");
         salida.writeUTF("Escribe '/salir' para cerrar sesión.");
-        salida.writeUTF("Escribe '/ayuda' para ver todos los comandos disponibles.");
+        if (autenticado) {
+            salida.writeUTF("Escribe '/ayuda' para ver todos los comandos disponibles.");
+        }
+      
     }
 
     private boolean estaEnPartidaActiva(String nombreJugador) {
@@ -697,20 +720,28 @@ private ComandoHandler obtenerHandlerAutenticado(String cmd, String mensaje) {
         mostrarYMarcarMensajesNoLeidos();
     }
     
-    private void mostrarYMarcarMensajesNoLeidos() throws IOException {
-        java.util.List<BaseDatos.MensajeGrupo> mensajesNoLeidos = 
-            ServidorMulti.obtenerMensajesNoLeidos(nombreCliente, grupoActual);
+   private void mostrarYMarcarMensajesNoLeidos() throws IOException {
+    java.util.List<BaseDatos.MensajeGrupo> mensajesNoLeidos = 
+        ServidorMulti.obtenerMensajesNoLeidos(nombreCliente, grupoActual);
+    
+    if (!mensajesNoLeidos.isEmpty()) {
+        java.util.List<BaseDatos.MensajeGrupo> mensajesFiltrados = new java.util.ArrayList<>();
+        for (BaseDatos.MensajeGrupo msg : mensajesNoLeidos) {
+            if (ServidorMulti.estasBloqueado(nombreCliente, msg.remitente)) {
+                continue;
+            }
+            mensajesFiltrados.add(msg);
+        }
         
-        if (!mensajesNoLeidos.isEmpty()) {
+        if (!mensajesFiltrados.isEmpty()) {
             salida.writeUTF("");
             salida.writeUTF("--------------------------------------------");
-            salida.writeUTF("   MENSAJES NO LEÍDOS (" + mensajesNoLeidos.size() + ")");
+            salida.writeUTF("   MENSAJES NO LEÍDOS (" + mensajesFiltrados.size() + ")");
             salida.writeUTF("--------------------------------------------");
             salida.writeUTF("");
             
-            for (BaseDatos.MensajeGrupo msg : mensajesNoLeidos) {
+            for (BaseDatos.MensajeGrupo msg : mensajesFiltrados) {
                 salida.writeUTF("[" + grupoActual + "] " + msg.remitente + ": " + msg.mensaje);
-                ServidorMulti.actualizarUltimoMensajeLeido(nombreCliente, grupoActual, msg.id);
             }
             salida.writeUTF("");
             salida.writeUTF("--------------------------------------------");
@@ -718,7 +749,13 @@ private ComandoHandler obtenerHandlerAutenticado(String cmd, String mensaje) {
         } else {
             salida.writeUTF("[SISTEMA]: ✓ No tienes mensajes nuevos en este grupo.");
         }
+        for (BaseDatos.MensajeGrupo msg : mensajesNoLeidos) {
+            ServidorMulti.actualizarUltimoMensajeLeido(nombreCliente, grupoActual, msg.id);
+        }
+    } else {
+        salida.writeUTF("[SISTEMA]: ✓ No tienes mensajes nuevos en este grupo.");
     }
+}
     
     private void mostrarGrupoActual() throws IOException {
         if (!verificarAutenticacion()) return;
@@ -811,73 +848,89 @@ private ComandoHandler obtenerHandlerAutenticado(String cmd, String mensaje) {
         }
     }
     
-    private boolean validarEnvioPrivado(String destino) throws IOException {
-        if (!ServidorMulti.usuarios.containsKey(destino)) {
-            salida.writeUTF("[ERROR]: Usuario '" + destino + "' no existe.");
-            return false;
-        }
-        if (!autenticado && mensajesEnviados >= MENSAJES_GRATUITOS) {
-            salida.writeUTF("[ERROR]: Debes autenticarte para enviar mensajes privados.");
-            return false;
-        }
-
-        if (ServidorMulti.estasBloqueado(nombreCliente, destino)) {
-            salida.writeUTF("[ERROR]: No puedes enviar mensajes a " + destino + " porque lo tienes bloqueado.");
-            return false;
-        }
-
-        if (ServidorMulti.estasBloqueado(destino, nombreCliente)) {
-            salida.writeUTF("[ERROR]: No puedes enviar mensajes a " + destino + " porque te tiene bloqueado.");
-            return false;
-        }
-
-        return true;
+private boolean validarEnvioPrivado(String destino) throws IOException {
+    if (!ServidorMulti.usuarios.containsKey(destino)) {
+        salida.writeUTF("[ERROR]: Usuario '" + destino + "' no existe.");
+        return false;
     }
-    private void mostrarUsuariosYBloquear() throws IOException {
-        if (!verificarAutenticacion()) return;
-        
-        String usuariosDisponibles = obtenerUsuariosParaBloquear();
-        if (validarUsuariosDisponibles(usuariosDisponibles, "No hay usuarios disponibles para bloquear.")) return;
-        
-        salida.writeUTF("[USUARIOS]: " + usuariosDisponibles);
-        salida.writeUTF("[SISTEMA]: Escribe el nombre del usuario:");
-        
-        String usuarioABloquear = entrada.readUTF().trim();
-        if (!usuarioABloquear.isEmpty()) bloquearUsuario(usuarioABloquear);
-        else salida.writeUTF("[SISTEMA]: Operación cancelada.");
+    if (!autenticado && mensajesEnviados >= MENSAJES_GRATUITOS) {
+        salida.writeUTF("[ERROR]: Debes autenticarte para enviar mensajes privados.");
+        return false;
     }
+
+    if (ServidorMulti.estasBloqueado(nombreCliente, destino)) {
+        salida.writeUTF("[ERROR]: No puedes enviar mensajes a " + destino + " porque lo tienes bloqueado.");
+        return false;
+    }
+
+    if (ServidorMulti.estasBloqueado(destino, nombreCliente)) {
+        salida.writeUTF("[ERROR]: No puedes enviar mensajes a " + destino + " porque te tiene bloqueado.");
+        return false;
+    }
+
+    return true;
+}
+private void mostrarUsuariosYBloquear() throws IOException {
+    if (!verificarAutenticacion()) return;
+    
+    if (nombreCliente.startsWith(PREFIJO_INVITADO)) {
+        salida.writeUTF("[ERROR]: Los usuarios invitados no pueden bloquear a otros.");
+        salida.writeUTF("[INFO]: Regístrate o inicia sesión para usar esta función.");
+        return;
+    }
+    
+    String usuariosDisponibles = obtenerUsuariosParaBloquear();
+    if (validarUsuariosDisponibles(usuariosDisponibles, "No hay usuarios disponibles para bloquear.")) return;
+    
+    salida.writeUTF("[USUARIOS]: " + usuariosDisponibles);
+    salida.writeUTF("[SISTEMA]: Escribe el nombre del usuario:");
+    
+    String usuarioABloquear = entrada.readUTF().trim();
+    if (!usuarioABloquear.isEmpty()) bloquearUsuario(usuarioABloquear);
+    else salida.writeUTF("[SISTEMA]: Operación cancelada.");
+}
     
     private String obtenerUsuariosParaBloquear() {
-        java.util.List<String> bloqueados = ServidorMulti.obtenerBloqueados(nombreCliente);
-        return ServidorMulti.usuarios.keySet().stream()
-            .filter(usuario -> !usuario.equals(nombreCliente) && !bloqueados.contains(usuario))
-            .map(usuario -> usuario + (ServidorMulti.clientes.containsKey(usuario) ? "[ON]" : "[OFF]"))
-            .reduce((a, b) -> a + ", " + b)
-            .orElse("");
+    java.util.List<String> bloqueados = ServidorMulti.obtenerBloqueados(nombreCliente);
+    return ServidorMulti.usuarios.keySet().stream()
+        .filter(usuario -> !usuario.equals(nombreCliente))
+        .filter(usuario -> !bloqueados.contains(usuario))
+        .filter(usuario -> !usuario.startsWith(PREFIJO_INVITADO))
+        .map(usuario -> usuario + (ServidorMulti.clientes.containsKey(usuario) ? "[ON]" : "[OFF]"))
+        .reduce((a, b) -> a + ", " + b)
+        .orElse("");
+}
+    
+private void bloquearUsuario(String usuario) throws IOException {
+    if (usuario.equals(nombreCliente)) {
+        salida.writeUTF("[ERROR]: No puedes bloquearte a ti mismo.");
+        return;
+    }
+    if (usuario.startsWith(PREFIJO_INVITADO)) {
+        salida.writeUTF("[ERROR]: No puedes bloquear a usuarios invitados.");
+        return;
     }
     
-    private void bloquearUsuario(String usuario) throws IOException {
-        if (usuario.equals(nombreCliente)) {
-            salida.writeUTF("[ERROR]: No puedes bloquearte a ti mismo.");
-            return;
-        }
-        if (!ServidorMulti.usuarios.containsKey(usuario)) {
-            salida.writeUTF("[ERROR]: El usuario '" + usuario + "' no existe.");
-            return;
-        }
-        if (ServidorMulti.estasBloqueado(nombreCliente, usuario)) {
-            salida.writeUTF("[ERROR]: Ya tienes bloqueado a " + usuario + ".");
-            return;
-        }
-        
-        boolean exito = ServidorMulti.bloquearUsuario(nombreCliente, usuario);
-        String mensaje = exito 
-            ? "[SISTEMA]: ¡Usuario '" + usuario + "' bloqueado correctamente!"
-            : "[ERROR]: No se pudo bloquear al usuario. Intenta de nuevo.";
-        salida.writeUTF(mensaje);
-        if (exito) System.out.println(nombreCliente + " bloqueó a " + usuario);
+    if (!ServidorMulti.usuarios.containsKey(usuario)) {
+        salida.writeUTF("[ERROR]: El usuario '" + usuario + "' no existe.");
+        return;
+    }
+    if (ServidorMulti.estasBloqueado(nombreCliente, usuario)) {
+        salida.writeUTF("[ERROR]: Ya tienes bloqueado a " + usuario + ".");
+        return;
     }
     
+    boolean exito = ServidorMulti.bloquearUsuario(nombreCliente, usuario);
+    if (exito) {
+        salida.writeUTF("[SISTEMA]: ¡Usuario '" + usuario + "' bloqueado correctamente!");
+        salida.writeUTF("[INFO]: Ya no verás sus mensajes en grupos ni chats privados.");
+        salida.writeUTF("[INFO]: " + usuario + " tampoco podrá ver tus mensajes en grupos.");
+        System.out.println(nombreCliente + " bloqueó a " + usuario);
+    } else {
+        salida.writeUTF("[ERROR]: No se pudo bloquear al usuario. Intenta de nuevo.");
+    }
+}
+ 
     private void mostrarBloqueadosYDesbloquear() throws IOException {
         if (!verificarAutenticacion()) return;
         
@@ -895,23 +948,31 @@ private ComandoHandler obtenerHandlerAutenticado(String cmd, String mensaje) {
         else salida.writeUTF("[SISTEMA]: Operación cancelada.");
     }
     
-    private void desbloquearUsuario(String usuario) throws IOException {
-        if (!ServidorMulti.usuarios.containsKey(usuario)) {
-            salida.writeUTF("[ERROR]: El usuario '" + usuario + "' no existe.");
-            return;
-        }
-        if (!ServidorMulti.estasBloqueado(nombreCliente, usuario)) {
-            salida.writeUTF("[ERROR]: No tienes bloqueado a " + usuario + ".");
-            return;
-        }
-        
-        boolean exito = ServidorMulti.desbloquearUsuario(nombreCliente, usuario);
-        String mensaje = exito
-            ? "[SISTEMA]: ¡Usuario '" + usuario + "' desbloqueado correctamente!"
-            : "[ERROR]: No se pudo desbloquear al usuario. Intenta de nuevo.";
-        salida.writeUTF(mensaje);
-        if (exito) System.out.println(nombreCliente + " desbloqueó a " + usuario);
+private void desbloquearUsuario(String usuario) throws IOException {
+    if (usuario.startsWith(PREFIJO_INVITADO)) {
+        salida.writeUTF("[ERROR]: No puedes desbloquear a usuarios invitados.");
+        return;
     }
+    
+    if (!ServidorMulti.usuarios.containsKey(usuario)) {
+        salida.writeUTF("[ERROR]: El usuario '" + usuario + "' no existe.");
+        return;
+    }
+    if (!ServidorMulti.estasBloqueado(nombreCliente, usuario)) {
+        salida.writeUTF("[ERROR]: No tienes bloqueado a " + usuario + ".");
+        return;
+    }
+    
+    boolean exito = ServidorMulti.desbloquearUsuario(nombreCliente, usuario);
+    if (exito) {
+        salida.writeUTF("[SISTEMA]: ¡Usuario '" + usuario + "' desbloqueado correctamente!");
+        salida.writeUTF("[INFO]: Ahora ambos podrán verse los mensajes en grupos y chats privados.");
+        System.out.println(nombreCliente + " desbloqueó a " + usuario);
+    } else {
+        salida.writeUTF("[ERROR]: No se pudo desbloquear al usuario. Intenta de nuevo.");
+    }
+}
+
     
     private void mostrarMisBloqueados() throws IOException {
         if (!verificarAutenticacion()) return;
@@ -968,16 +1029,16 @@ private ComandoHandler obtenerHandlerAutenticado(String cmd, String mensaje) {
         else salida.writeUTF("[SISTEMA]: Operación cancelada.");
     }
     
-    private String obtenerUsuariosParaJugar() {
-        return ServidorMulti.clientes.keySet().stream()
-            .filter(usuario -> !usuario.equals(nombreCliente))
-            .filter(usuario -> !usuario.startsWith(PREFIJO_INVITADO))
-            .filter(usuario -> !ServidorMulti.estasBloqueado(nombreCliente, usuario))
-            .filter(usuario -> !ServidorMulti.estasBloqueado(usuario, nombreCliente))
-            .map(usuario -> usuario + (ServidorMulti.tienePartidaActiva(usuario) ? "[OCUPADO]" : ""))
-            .reduce((a, b) -> a + ", " + b)
-            .orElse("");
-    }
+private String obtenerUsuariosParaJugar() {
+    return ServidorMulti.clientes.keySet().stream()
+        .filter(usuario -> !usuario.equals(nombreCliente))
+        .filter(usuario -> !usuario.startsWith(PREFIJO_INVITADO))
+        .filter(usuario -> !ServidorMulti.estasBloqueado(nombreCliente, usuario))
+        .filter(usuario -> !ServidorMulti.estasBloqueado(usuario, nombreCliente))
+        .map(usuario -> usuario + (ServidorMulti.tienePartidaActiva(usuario) ? "[OCUPADO]" : ""))
+        .reduce((a, b) -> a + ", " + b)
+        .orElse("");
+}
     
     private void enviarInvitacionJuego(String invitado) throws IOException {
         if (!validarInvitacionJuego(invitado)) return;
@@ -1028,30 +1089,30 @@ private ComandoHandler obtenerHandlerAutenticado(String cmd, String mensaje) {
         return true;
     }
     
-    private void aceptarInvitacionGato() throws IOException {
-        if (!verificarAutenticacion()) return;
-        
-        if (ServidorMulti.tienePartidaActiva(nombreCliente)) {
-            salida.writeUTF("[ERROR]: Ya tienes una partida activa. Solo puedes jugar una partida a la vez.");
-            return;
-        }
-        
-        String invitador = ServidorMulti.obtenerInvitador(nombreCliente);
-        if (invitador == null) {
-            salida.writeUTF("[ERROR]: No tienes invitaciones pendientes.");
-            return;
-        }
+   private void aceptarInvitacionGato() throws IOException {
+    if (!verificarAutenticacion()) return;
+    
+    if (ServidorMulti.tienePartidaActiva(nombreCliente)) {
+        salida.writeUTF("[ERROR]: Ya tienes una partida activa. Solo puedes jugar una partida a la vez.");
+        return;
+    }
+    
+    String invitador = ServidorMulti.obtenerInvitador(nombreCliente);
+    if (invitador == null) {
+        salida.writeUTF("[ERROR]: No tienes invitaciones pendientes.");
+        return;
+    }
 
-        if (ServidorMulti.estasBloqueado(nombreCliente, invitador)) {
-            salida.writeUTF("[ERROR]: No puedes aceptar la invitación porque tienes bloqueado a " + invitador + ".");
-            ServidorMulti.eliminarInvitacion(nombreCliente);
-            return;
-        }
-        if (ServidorMulti.estasBloqueado(invitador, nombreCliente)) {
-            salida.writeUTF("[ERROR]: No puedes aceptar la invitación porque " + invitador + " te tiene bloqueado.");
-            ServidorMulti.eliminarInvitacion(nombreCliente);
-            return;
-        }
+    if (ServidorMulti.estasBloqueado(nombreCliente, invitador)) {
+        salida.writeUTF("[ERROR]: No puedes aceptar la invitación porque tienes bloqueado a " + invitador + ".");
+        ServidorMulti.eliminarInvitacion(nombreCliente);
+        return;
+    }
+    if (ServidorMulti.estasBloqueado(invitador, nombreCliente)) {
+        salida.writeUTF("[ERROR]: No puedes aceptar la invitación porque " + invitador + " te tiene bloqueado.");
+        ServidorMulti.eliminarInvitacion(nombreCliente);
+        return;
+    }
         
         ServidorMulti.eliminarInvitacion(nombreCliente);
         
@@ -1491,9 +1552,26 @@ private ComandoHandler obtenerHandlerAutenticado(String cmd, String mensaje) {
         
         completarRegistro(nuevoNombre, password);
     }
-    
+    private static final String[] NOMBRES_RESERVADOS = {
+    "invitado",
+    "sistema",
+    "SISTEMA",
+    "Invitado"
+};
   private boolean validarNombreUsuario(String nombre) throws IOException {
-    // Verificar que no esté vacío
+    
+       if (nombre.toLowerCase().startsWith(PREFIJO_INVITADO.toLowerCase())) {
+        salida.writeUTF("[ERROR]: El nombre no puede empezar con 'invitado_'.");
+        return false;
+    }
+        
+    String nombreLower = nombre.toLowerCase();
+    for (String reservado : NOMBRES_RESERVADOS) {
+        if (nombreLower.equals(reservado) || nombreLower.startsWith(reservado + "_")) {
+            salida.writeUTF("[ERROR]: '" + nombre + "' No puede ser usado por reglas del sistema. Elige otro.");
+            return false;
+        }
+    }
     if (nombre.isEmpty()) {
         salida.writeUTF("[ERROR]: El nombre de usuario no puede estar vacío.");
         return false;
@@ -1618,6 +1696,8 @@ private ComandoHandler obtenerHandlerAutenticado(String cmd, String mensaje) {
         grupoActual = GRUPO_PREDETERMINADO;
         
         salida.writeUTF("[SISTEMA]: ¡Inicio de sesión exitoso! Bienvenido de nuevo, " + nombreCliente);
+          salida.writeUTF("[SISTEMA]: Utiliza '/ayuda' para mostrar ayuda");
+      
         salida.writeUTF("[SISTEMA]: Tu grupo actual es: " + grupoActual);
         System.out.println(nombreAnterior + " inició sesión como: " + nombreCliente);
         
@@ -1674,21 +1754,30 @@ private ComandoHandler obtenerHandlerAutenticado(String cmd, String mensaje) {
         }
     }
 
-    private void mostrarMensajesNoLeidosAlEntrar() throws IOException {
-        try {
-            java.util.List<BaseDatos.MensajeGrupo> mensajesNoLeidos = 
-                ServidorMulti.obtenerMensajesNoLeidos(nombreCliente, grupoActual);
+   private void mostrarMensajesNoLeidosAlEntrar() throws IOException {
+    try {
+        java.util.List<BaseDatos.MensajeGrupo> mensajesNoLeidos = 
+            ServidorMulti.obtenerMensajesNoLeidos(nombreCliente, grupoActual);
+        
+        if (!mensajesNoLeidos.isEmpty()) {
+            java.util.List<BaseDatos.MensajeGrupo> mensajesFiltrados = new java.util.ArrayList<>();
+            for (BaseDatos.MensajeGrupo msg : mensajesNoLeidos) {
+        
+                if (ServidorMulti.estasBloqueado(nombreCliente, msg.remitente)) {
+                    continue;
+                }
+                mensajesFiltrados.add(msg);
+            }
             
-            if (!mensajesNoLeidos.isEmpty()) {
+            if (!mensajesFiltrados.isEmpty()) {
                 salida.writeUTF("");
                 salida.writeUTF("--------------------------------------------");
-                salida.writeUTF("   MENSAJES NO LEÍDOS EN '" + grupoActual + "' (" + mensajesNoLeidos.size() + ")");
+                salida.writeUTF("   MENSAJES NO LEÍDOS EN '" + grupoActual + "' (" + mensajesFiltrados.size() + ")");
                 salida.writeUTF("--------------------------------------------");
                 salida.writeUTF("");
                 
-                for (BaseDatos.MensajeGrupo msg : mensajesNoLeidos) {
+                for (BaseDatos.MensajeGrupo msg : mensajesFiltrados) {
                     salida.writeUTF("[" + grupoActual + "] " + msg.remitente + ": " + msg.mensaje);
-                    ServidorMulti.actualizarUltimoMensajeLeido(nombreCliente, grupoActual, msg.id);
                 }
                 
                 salida.writeUTF("");
@@ -1701,11 +1790,20 @@ private ComandoHandler obtenerHandlerAutenticado(String cmd, String mensaje) {
                 salida.writeUTF("[SISTEMA]: ✓ No tienes mensajes nuevos en '" + grupoActual + "'.");
                 salida.writeUTF("");
             }
-        } catch (Exception e) {
-            System.err.println("Error al mostrar mensajes no leídos: " + e.getMessage());
-            salida.writeUTF("[ERROR]: No se pudieron cargar los mensajes no leídos.");
+         
+            for (BaseDatos.MensajeGrupo msg : mensajesNoLeidos) {
+                ServidorMulti.actualizarUltimoMensajeLeido(nombreCliente, grupoActual, msg.id);
+            }
+        } else {
+            salida.writeUTF("");
+            salida.writeUTF("[SISTEMA]: ✓ No tienes mensajes nuevos en '" + grupoActual + "'.");
+            salida.writeUTF("");
         }
+    } catch (Exception e) {
+        System.err.println("Error al mostrar mensajes no leídos: " + e.getMessage());
+        salida.writeUTF("[ERROR]: No se pudieron cargar los mensajes no leídos.");
     }
+}
     private void cerrarSesion() throws IOException {
     if (!autenticado) {
         salida.writeUTF("[SISTEMA]: No has iniciado sesión.");
