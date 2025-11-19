@@ -1433,13 +1433,68 @@ public class UnCliente implements Runnable {
         completarRegistro(nuevoNombre, password);
     }
     
-    private boolean validarNombreUsuario(String nombre) throws IOException {
-        boolean valido = !nombre.isEmpty() && !nombre.contains(" ") && !nombre.contains("@");
-        if (!valido) {
-            salida.writeUTF("[ERROR]: Nombre inválido. No puede contener espacios ni '@'. Intenta de nuevo escribiendo '/registrar'.");
-        }
-        return valido;
+  private boolean validarNombreUsuario(String nombre) throws IOException {
+    // Verificar que no esté vacío
+    if (nombre.isEmpty()) {
+        salida.writeUTF("[ERROR]: El nombre de usuario no puede estar vacío.");
+        return false;
     }
+    
+    // Verificar longitud mínima y máxima
+    if (nombre.length() < 3) {
+        salida.writeUTF("[ERROR]: El nombre debe tener al menos 3 caracteres.");
+        return false;
+    }
+    
+    if (nombre.length() > 20) {
+        salida.writeUTF("[ERROR]: El nombre no puede tener más de 20 caracteres.");
+        return false;
+    }
+    
+    // Verificar que no contenga espacios
+    if (nombre.contains(" ")) {
+        salida.writeUTF("[ERROR]: El nombre no puede contener espacios.");
+        return false;
+    }
+    
+
+    if (nombre.contains("@")) {
+        salida.writeUTF("[ERROR]: El nombre no puede contener el símbolo '@'.");
+        return false;
+    }
+    
+  
+    if (nombre.contains(".")) {
+        salida.writeUTF("[ERROR]: El nombre no puede contener puntos.");
+        return false;
+    }
+    
+   
+    if (nombre.contains("/") || nombre.contains("\\")) {
+        salida.writeUTF("[ERROR]: El nombre no puede contener barras (/ o \\).");
+        return false;
+    }
+    
+  
+    if (nombre.matches(".*\\d.*")) {
+        salida.writeUTF("[ERROR]: El nombre no puede contener números.");
+        return false;
+    }
+    
+  
+    if (!nombre.matches("^[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ_]+$")) {
+        salida.writeUTF("[ERROR]: El nombre solo puede contener letras y guiones bajos.");
+        return false;
+    }
+    
+    // Verificar que no empiece con prefijo de invitado
+    if (nombre.toLowerCase().startsWith(PREFIJO_INVITADO.toLowerCase())) {
+        salida.writeUTF("[ERROR]: El nombre no puede empezar con 'invitado_'.");
+        return false;
+    }
+    
+    return true;
+}
     
     private boolean validarDisponibilidadNombre(String nombre) throws IOException {
         boolean disponible = ServidorMulti.nombreDisponible(nombre) && !ServidorMulti.usuarios.containsKey(nombre);
