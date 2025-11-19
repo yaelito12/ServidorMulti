@@ -1,4 +1,3 @@
-
 package com.mycompany.servidormulti;
 
 import java.io.*;
@@ -63,10 +62,14 @@ public class UnCliente implements Runnable {
         return obtenerHandlerAutenticado(cmd, mensaje);
     }
     
-    private ComandoHandler obtenerHandlerNoAutenticado(String cmd) {
+private ComandoHandler obtenerHandlerNoAutenticado(String cmd) {
     if (cmd.equals("/registrar")) return () -> { registrarUsuario(); return true; };
     if (cmd.equals("/iniciar") || cmd.equals("/login")) return () -> { iniciarSesion(); return true; };
-    if (cmd.equals("/salir")) return () -> { cerrarSesion(); return true; }; 
+   
+    if (cmd.equals("/salir")) return () -> { 
+        salida.writeUTF("[SISTEMA]: Cerrando conexión...");
+        throw new IOException("Cliente solicitó desconexión");
+    }; 
     if (cmd.equals("/ayuda") || cmd.equals("/help")) {
         return () -> { 
             salida.writeUTF("[ERROR]: Debes iniciar sesión o registrarte para usar este comando.");
@@ -76,8 +79,9 @@ public class UnCliente implements Runnable {
     return () -> false;
 }
     
-  private ComandoHandler obtenerHandlerAutenticado(String cmd, String mensaje) {
-    if (cmd.equals("/salir")) return () -> { cerrarSesion(); return true; };  
+private ComandoHandler obtenerHandlerAutenticado(String cmd, String mensaje) {
+    // ✅ Para autenticados, /salir también cierra la conexión
+    if (cmd.equals("/salir")) return () -> { cerrarSesionYDesconectar(); return true; };  
     if (cmd.equals("/ayuda") || cmd.equals("/help")) return () -> { mostrarAyuda(); return true; };
     if (cmd.equals("/@") || cmd.equals("/privado")) return () -> { mostrarUsuariosYEnviarMensaje(); return true; };
     if (cmd.equals("/bloquear")) return () -> { mostrarUsuariosYBloquear(); return true; };
@@ -91,8 +95,36 @@ public class UnCliente implements Runnable {
     if (juegoHandler != null) return juegoHandler;
     
     return () -> false;
-}
+}private void cerrarSesionYDesconectar() throws IOException {
+  
+    String nombreAnterior = nombreCliente;
     
+
+    Optional<PartidaGato> partidaActiva = obtenerPartidaActiva();
+    if (partidaActiva.isPresent()) {
+        PartidaGato partida = partidaActiva.get();
+        String oponente = partida.getOponente(nombreCliente);
+        partida.abandonar(nombreCliente);
+
+        ServidorMulti.registrarResultadoPartida(partida.getJugador1(), partida.getJugador2(), oponente);
+        Optional.ofNullable(ServidorMulti.clientes.get(oponente)).ifPresent(cliente -> {
+            enviarSafe(cliente, "[GATO]: " + nombreCliente + " cerró sesión durante la partida. ¡Has ganado!");
+            enviarSafe(cliente, "[SISTEMA]: Chat de partida desactivado. Volviste al grupo: " + cliente.grupoActual);
+        });
+        ServidorMulti.finalizarPartida(partida.getJugador1(), partida.getJugador2());
+        System.out.println(nombreCliente + " abandonó la partida con " + oponente + " al cerrar sesión");
+    }
+    
+    notificarDesconexionGrupo(grupoActual);
+    
+    // Enviar mensaje de despedida al cliente
+    salida.writeUTF("[SISTEMA]: Has cerrado sesión correctamente.");
+    salida.writeUTF("[SISTEMA]: Cerrando conexión...");
+    System.out.println(nombreAnterior + " cerró sesión y se desconectó.");
+    
+    // Lanzar excepción para cerrar la conexión
+    throw new IOException("Cliente solicitó desconexión");
+}
     private ComandoHandler obtenerHandlerGrupos(String cmd) {
         if (cmd.equals("/creargrupo")) return () -> { crearGrupo(); return true; };
         if (cmd.equals("/eliminargrupo")) return () -> { eliminarGrupo(); return true; };
@@ -110,7 +142,7 @@ public class UnCliente implements Runnable {
     if (cmd.equals("/gato") || cmd.equals("/jugar")) return () -> { invitarAJugarGato(); return true; };
     if (cmd.equals("/aceptar")) return () -> { aceptarInvitacionGato(); return true; };
     if (cmd.equals("/rechazar")) return () -> { rechazarInvitacionGato(); return true; };
-    if (cmd.equals("/cancelarinvitacion")) return () -> { cancelarInvitacion(); return true; }; // ✅ NUEVO
+    if (cmd.equals("/cancelarinvitacion")) return () -> { cancelarInvitacion(); return true; }; 
     if (cmd.equals("/partidas")) return () -> { mostrarPartidasActivas(); return true; };
     if (cmd.equals("/rendirse")) return () -> { rendirseEnPartida(); return true; };
     if (cmd.equals("/ranking")) return () -> { mostrarRankingGeneral(); return true; };
@@ -1673,13 +1705,15 @@ public class UnCliente implements Runnable {
             salida.writeUTF("[ERROR]: No se pudieron cargar los mensajes no leídos.");
         }
     }
-    
- private void cerrarSesion() throws IOException {
+    private void cerrarSesion() throws IOException {
     if (!autenticado) {
         salida.writeUTF("[SISTEMA]: No has iniciado sesión.");
         salida.writeUTF("[INFO]: Ya eres un usuario invitado (" + nombreCliente + ")");
         return;
     }
+    
+    // ✅ GUARDAR EL NOMBRE AL PRINCIPIO, ANTES DE CUALQUIER NOTIFICACIÓN
+    String nombreAnterior = nombreCliente;
     
     Optional<PartidaGato> partidaActiva = obtenerPartidaActiva();
     if (partidaActiva.isPresent()) {
@@ -1697,10 +1731,10 @@ public class UnCliente implements Runnable {
         System.out.println(nombreCliente + " abandonó la partida con " + oponente + " al cerrar sesión");
     }
     
-    String nombreAnterior = nombreCliente;
-    
+    // ✅ Notificar ANTES de cambiar el nombre
     notificarDesconexionGrupo(grupoActual);
     
+    // Ahora sí cambiar el nombre
     cambiarNombreCliente(PREFIJO_INVITADO + System.currentTimeMillis());
     autenticado = false;
     mensajesEnviados = 0;
@@ -1711,6 +1745,7 @@ public class UnCliente implements Runnable {
     salida.writeUTF("[SISTEMA]: Tienes 3 mensajes gratuitos. Escribe '/iniciar' para iniciar sesión nuevamente.");
     System.out.println(nombreAnterior + " cerró sesión y ahora es: " + nombreCliente);
 }
+
     
     private void notificarDesconexionGrupo(String nombreGrupo) {
         java.util.List<String> miembros = ServidorMulti.obtenerMiembrosGrupo(nombreGrupo);
