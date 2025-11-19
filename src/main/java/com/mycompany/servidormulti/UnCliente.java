@@ -389,7 +389,7 @@ private ComandoHandler obtenerHandlerAutenticado(String cmd, String mensaje) {
             salida.writeUTF("[ERROR]: No se pudo crear el grupo. Intenta con otro nombre.");
         }
     }
-    
+    //
     private boolean validarNombreGrupo(String nombreGrupo) throws IOException {
         if (nombreGrupo.isEmpty()) {
             salida.writeUTF("[ERROR]: El nombre del grupo no puede estar vacío.");
