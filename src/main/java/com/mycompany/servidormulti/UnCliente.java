@@ -76,22 +76,22 @@ public class UnCliente implements Runnable {
     return () -> false;
 }
     
-    private ComandoHandler obtenerHandlerAutenticado(String cmd, String mensaje) {
-        if (cmd.equals("/salir") || cmd.equals("/logout")) return () -> { cerrarSesion(); return true; };
-        if (cmd.equals("/ayuda") || cmd.equals("/help")) return () -> { mostrarAyuda(); return true; };
-        if (cmd.equals("/@") || cmd.equals("/privado")) return () -> { mostrarUsuariosYEnviarMensaje(); return true; };
-        if (cmd.equals("/bloquear")) return () -> { mostrarUsuariosYBloquear(); return true; };
-        if (cmd.equals("/desbloquear")) return () -> { mostrarBloqueadosYDesbloquear(); return true; };
-        if (cmd.equals("/misbloqueados") || cmd.equals("/mis bloqueados")) return () -> { mostrarMisBloqueados(); return true; };
-        
-        ComandoHandler grupoHandler = obtenerHandlerGrupos(cmd);
-        if (grupoHandler != null) return grupoHandler;
-        
-        ComandoHandler juegoHandler = obtenerHandlerJuego(cmd, mensaje);
-        if (juegoHandler != null) return juegoHandler;
-        
-        return () -> false;
-    }
+  private ComandoHandler obtenerHandlerAutenticado(String cmd, String mensaje) {
+    if (cmd.equals("/salir")) return () -> { cerrarSesion(); return true; };  
+    if (cmd.equals("/ayuda") || cmd.equals("/help")) return () -> { mostrarAyuda(); return true; };
+    if (cmd.equals("/@") || cmd.equals("/privado")) return () -> { mostrarUsuariosYEnviarMensaje(); return true; };
+    if (cmd.equals("/bloquear")) return () -> { mostrarUsuariosYBloquear(); return true; };
+    if (cmd.equals("/desbloquear")) return () -> { mostrarBloqueadosYDesbloquear(); return true; };
+    if (cmd.equals("/misbloqueados") || cmd.equals("/mis bloqueados")) return () -> { mostrarMisBloqueados(); return true; };
+    
+    ComandoHandler grupoHandler = obtenerHandlerGrupos(cmd);
+    if (grupoHandler != null) return grupoHandler;
+    
+    ComandoHandler juegoHandler = obtenerHandlerJuego(cmd, mensaje);
+    if (juegoHandler != null) return juegoHandler;
+    
+    return () -> false;
+}
     
     private ComandoHandler obtenerHandlerGrupos(String cmd) {
         if (cmd.equals("/creargrupo")) return () -> { crearGrupo(); return true; };
