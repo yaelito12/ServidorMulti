@@ -64,17 +64,17 @@ public class UnCliente implements Runnable {
     }
     
     private ComandoHandler obtenerHandlerNoAutenticado(String cmd) {
-        if (cmd.equals("/registrar")) return () -> { registrarUsuario(); return true; };
-        if (cmd.equals("/iniciar") || cmd.equals("/login")) return () -> { iniciarSesion(); return true; };
-        if (cmd.equals("/salir") || cmd.equals("/logout")) return () -> { cerrarSesion(); return true; };
-        if (cmd.equals("/ayuda") || cmd.equals("/help")) {
-            return () -> { 
-                salida.writeUTF("[ERROR]: Debes iniciar sesión o registrarte para usar este comando.");
-                return true; 
-            };
-        }
-        return () -> false;
+    if (cmd.equals("/registrar")) return () -> { registrarUsuario(); return true; };
+    if (cmd.equals("/iniciar") || cmd.equals("/login")) return () -> { iniciarSesion(); return true; };
+    if (cmd.equals("/salir")) return () -> { cerrarSesion(); return true; }; 
+    if (cmd.equals("/ayuda") || cmd.equals("/help")) {
+        return () -> { 
+            salida.writeUTF("[ERROR]: Debes iniciar sesión o registrarte para usar este comando.");
+            return true; 
+        };
     }
+    return () -> false;
+}
     
     private ComandoHandler obtenerHandlerAutenticado(String cmd, String mensaje) {
         if (cmd.equals("/salir") || cmd.equals("/logout")) return () -> { cerrarSesion(); return true; };
