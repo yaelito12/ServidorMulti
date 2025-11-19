@@ -1491,9 +1491,26 @@ private ComandoHandler obtenerHandlerAutenticado(String cmd, String mensaje) {
         
         completarRegistro(nuevoNombre, password);
     }
-    
+    private static final String[] NOMBRES_RESERVADOS = {
+    "invitado",
+    "sistema",
+    "SISTEMA",
+    "Invitado"
+};
   private boolean validarNombreUsuario(String nombre) throws IOException {
-    // Verificar que no esté vacío
+    
+       if (nombre.toLowerCase().startsWith(PREFIJO_INVITADO.toLowerCase())) {
+        salida.writeUTF("[ERROR]: El nombre no puede empezar con 'invitado_'.");
+        return false;
+    }
+        
+    String nombreLower = nombre.toLowerCase();
+    for (String reservado : NOMBRES_RESERVADOS) {
+        if (nombreLower.equals(reservado) || nombreLower.startsWith(reservado + "_")) {
+            salida.writeUTF("[ERROR]: '" + nombre + "' No puede ser usado por reglas del sistema. Elige otro.");
+            return false;
+        }
+    }
     if (nombre.isEmpty()) {
         salida.writeUTF("[ERROR]: El nombre de usuario no puede estar vacío.");
         return false;
