@@ -40,23 +40,28 @@ public class UnCliente implements Runnable {
     }
     
  private void procesarComandos() throws IOException {
-        while (true) {
-            String mensaje = entrada.readUTF().trim();
-            
- 
-            if (mensaje.isEmpty()) {
-                continue;
-            }
-            
+    while (true) {
+        String mensaje = entrada.readUTF().trim();
+
+        if (mensaje.isEmpty()) {
+            continue;
+        }
+        
+       
+        if (mensaje.startsWith("/")) {
             ComandoHandler handler = obtenerHandlerComando(mensaje);
             if (handler.ejecutar()) continue;
             
-            if (!verificarLimiteMensajes()) continue;
-            
-            procesarMensajeRegular(mensaje);
+         
+            salida.writeUTF("[ERROR]: Comando no reconocido. Escribe '/ayuda' para ver los comandos disponibles.");
+            continue; 
         }
+        
+        if (!verificarLimiteMensajes()) continue;
+        
+        procesarMensajeRegular(mensaje);
     }
-    
+}
     private ComandoHandler obtenerHandlerComando(String mensaje) {
         String cmd = mensaje.toLowerCase();
         
@@ -352,18 +357,22 @@ private void distribuirMensajeGrupo(String mensaje, long idMensaje) throws IOExc
         }
     }
     
-    private void inicializarCliente() throws IOException {
-        enviarMensajeBienvenida();
-        nombreCliente = PREFIJO_INVITADO + System.currentTimeMillis();
-        ServidorMulti.registrarCliente(nombreCliente, this);
-    }
+   private void inicializarCliente() throws IOException {
+    nombreCliente = PREFIJO_INVITADO + System.currentTimeMillis();
+    ServidorMulti.registrarCliente(nombreCliente, this);
+    enviarMensajeBienvenida();
+}
 
     private void enviarMensajeBienvenida() throws IOException {
         salida.writeUTF("=== BIENVENIDO AL CHAT ===");
+        salida.writeUTF("Actualmente eres un usuario INVITADO (" + nombreCliente + ")");
         salida.writeUTF("Puedes enviar "+MENSAJES_GRATUITOS +" mensajes de prueba antes de registrarte.");
         salida.writeUTF("Escribe '/registrar' para crear una cuenta o '/iniciar' para iniciar sesión.");
         salida.writeUTF("Escribe '/salir' para cerrar sesión.");
-        salida.writeUTF("Escribe '/ayuda' para ver todos los comandos disponibles.");
+        if (autenticado) {
+            salida.writeUTF("Escribe '/ayuda' para ver todos los comandos disponibles.");
+        }
+      
     }
 
     private boolean estaEnPartidaActiva(String nombreJugador) {
@@ -1687,6 +1696,8 @@ private String obtenerUsuariosParaJugar() {
         grupoActual = GRUPO_PREDETERMINADO;
         
         salida.writeUTF("[SISTEMA]: ¡Inicio de sesión exitoso! Bienvenido de nuevo, " + nombreCliente);
+          salida.writeUTF("[SISTEMA]: Utiliza '/ayuda' para mostrar ayuda");
+      
         salida.writeUTF("[SISTEMA]: Tu grupo actual es: " + grupoActual);
         System.out.println(nombreAnterior + " inició sesión como: " + nombreCliente);
         
