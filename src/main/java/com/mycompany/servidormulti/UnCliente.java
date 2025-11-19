@@ -1114,6 +1114,7 @@ private ComandoHandler obtenerHandlerAutenticado(String cmd, String mensaje) {
         salida.writeUTF("Comandos útiles:");
         salida.writeUTF("  /partidas - Ver estado del tablero");
         salida.writeUTF("  /rendirse - Abandonar partida");
+        salida.writeUTF("  /salir - Abandonar partida y cerrar sesion");
     }
     
     private void rechazarInvitacionGato() throws IOException {
