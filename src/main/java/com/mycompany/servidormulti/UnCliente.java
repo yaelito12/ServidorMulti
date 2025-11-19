@@ -1674,27 +1674,43 @@ public class UnCliente implements Runnable {
         }
     }
     
-    private void cerrarSesion() throws IOException {
-        if (!autenticado) {
-            salida.writeUTF("[SISTEMA]: No has iniciado sesión.");
-            salida.writeUTF("[INFO]: Ya eres un usuario invitado (" + nombreCliente + ")");
-            return;
-        }
-        
-        String nombreAnterior = nombreCliente;
-        
-        notificarDesconexionGrupo(grupoActual);
-        
-        cambiarNombreCliente(PREFIJO_INVITADO + System.currentTimeMillis());
-        autenticado = false;
-        mensajesEnviados = 0;
-        grupoActual = GRUPO_PREDETERMINADO;
-        
-        salida.writeUTF("[SISTEMA]: Has cerrado sesión correctamente.");
-        salida.writeUTF("[SISTEMA]: Ahora eres: " + nombreCliente);
-        salida.writeUTF("[SISTEMA]: Tienes 3 mensajes gratuitos. Escribe '/iniciar' para iniciar sesión nuevamente.");
-        System.out.println(nombreAnterior + " cerró sesión y ahora es: " + nombreCliente);
+ private void cerrarSesion() throws IOException {
+    if (!autenticado) {
+        salida.writeUTF("[SISTEMA]: No has iniciado sesión.");
+        salida.writeUTF("[INFO]: Ya eres un usuario invitado (" + nombreCliente + ")");
+        return;
     }
+    
+    Optional<PartidaGato> partidaActiva = obtenerPartidaActiva();
+    if (partidaActiva.isPresent()) {
+        PartidaGato partida = partidaActiva.get();
+        String oponente = partida.getOponente(nombreCliente);
+        partida.abandonar(nombreCliente);
+
+        ServidorMulti.registrarResultadoPartida(partida.getJugador1(), partida.getJugador2(), oponente);
+        Optional.ofNullable(ServidorMulti.clientes.get(oponente)).ifPresent(cliente -> {
+            enviarSafe(cliente, "[GATO]: " + nombreCliente + " cerró sesión durante la partida. ¡Has ganado!");
+            enviarSafe(cliente, "[SISTEMA]: Chat de partida desactivado. Volviste al grupo: " + cliente.grupoActual);
+        });
+        ServidorMulti.finalizarPartida(partida.getJugador1(), partida.getJugador2());
+        salida.writeUTF("[GATO]: Has abandonado la partida con " + oponente + ". Perdiste por cierre de sesión.");
+        System.out.println(nombreCliente + " abandonó la partida con " + oponente + " al cerrar sesión");
+    }
+    
+    String nombreAnterior = nombreCliente;
+    
+    notificarDesconexionGrupo(grupoActual);
+    
+    cambiarNombreCliente(PREFIJO_INVITADO + System.currentTimeMillis());
+    autenticado = false;
+    mensajesEnviados = 0;
+    grupoActual = GRUPO_PREDETERMINADO;
+    
+    salida.writeUTF("[SISTEMA]: Has cerrado sesión correctamente.");
+    salida.writeUTF("[SISTEMA]: Ahora eres: " + nombreCliente);
+    salida.writeUTF("[SISTEMA]: Tienes 3 mensajes gratuitos. Escribe '/iniciar' para iniciar sesión nuevamente.");
+    System.out.println(nombreAnterior + " cerró sesión y ahora es: " + nombreCliente);
+}
     
     private void notificarDesconexionGrupo(String nombreGrupo) {
         java.util.List<String> miembros = ServidorMulti.obtenerMiembrosGrupo(nombreGrupo);
