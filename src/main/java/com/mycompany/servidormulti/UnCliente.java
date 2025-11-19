@@ -106,22 +106,39 @@ public class UnCliente implements Runnable {
         return null;
     }
     
-    private ComandoHandler obtenerHandlerJuego(String cmd, String mensaje) {
-        if (cmd.equals("/gato") || cmd.equals("/jugar")) return () -> { invitarAJugarGato(); return true; };
-        if (cmd.equals("/aceptar")) return () -> { aceptarInvitacionGato(); return true; };
-        if (cmd.equals("/rechazar")) return () -> { rechazarInvitacionGato(); return true; };
-        if (cmd.equals("/partidas")) return () -> { mostrarPartidasActivas(); return true; };
-        if (cmd.equals("/rendirse")) return () -> { rendirseEnPartida(); return true; };
-        if (cmd.equals("/ranking")) return () -> { mostrarRankingGeneral(); return true; };
-        if (cmd.equals("/vs") || cmd.equals("/estadisticas")) return () -> { mostrarEstadisticasVs(); return true; };
-        if (esMovimientoGato(mensaje)) {
-            return () -> { 
-                realizarMovimientoGato(esFormatoSimple(mensaje) ? "/jugar " + mensaje : mensaje); 
-                return true; 
-            };
-        }
-        return null;
+   private ComandoHandler obtenerHandlerJuego(String cmd, String mensaje) {
+    if (cmd.equals("/gato") || cmd.equals("/jugar")) return () -> { invitarAJugarGato(); return true; };
+    if (cmd.equals("/aceptar")) return () -> { aceptarInvitacionGato(); return true; };
+    if (cmd.equals("/rechazar")) return () -> { rechazarInvitacionGato(); return true; };
+    if (cmd.equals("/cancelarinvitacion")) return () -> { cancelarInvitacion(); return true; }; // ✅ NUEVO
+    if (cmd.equals("/partidas")) return () -> { mostrarPartidasActivas(); return true; };
+    if (cmd.equals("/rendirse")) return () -> { rendirseEnPartida(); return true; };
+    if (cmd.equals("/ranking")) return () -> { mostrarRankingGeneral(); return true; };
+    if (cmd.equals("/vs") || cmd.equals("/estadisticas")) return () -> { mostrarEstadisticasVs(); return true; };
+    if (esMovimientoGato(mensaje)) {
+        return () -> { 
+            realizarMovimientoGato(esFormatoSimple(mensaje) ? "/jugar " + mensaje : mensaje); 
+            return true; 
+        };
     }
+    return null;
+}
+   
+   private void cancelarInvitacion() throws IOException {
+    if (!verificarAutenticacion()) return;
+    
+    String invitado = ServidorMulti.obtenerInvitadoDe(nombreCliente);
+    if (invitado == null) {
+        salida.writeUTF("[ERROR]: No tienes invitaciones pendientes para cancelar.");
+        return;
+    }
+    
+    ServidorMulti.eliminarInvitacion(invitado);
+    salida.writeUTF("[SISTEMA]: Invitación a " + invitado + " cancelada.");
+    
+    Optional.ofNullable(ServidorMulti.clientes.get(invitado))
+        .ifPresent(cliente -> enviarSafe(cliente, "[GATO]: " + nombreCliente + " canceló la invitación."));
+}
     
     private boolean esMovimientoGato(String mensaje) {
         return mensaje.toLowerCase().startsWith("/jugar ") || mensaje.matches("^[1-3]\\s+[1-3]$");
@@ -894,7 +911,16 @@ public class UnCliente implements Runnable {
             salida.writeUTF("[ERROR]: Ya tienes una partida activa. Solo puedes jugar una partida a la vez.");
             salida.writeUTF("[INFO]: Usa '/partidas' para ver tu partida actual o '/rendirse' para abandonarla.");
             return;
-        }
+        } 
+         
+    if (ServidorMulti.tieneInvitacionPendiente(nombreCliente)) {
+        salida.writeUTF("[ERROR]: Ya tienes una invitación pendiente. Espera a que sea respondida.");
+        salida.writeUTF("[INFO]: Puedes cancelarla escribiendo '/cancelarinvitacion'.");
+        return;
+    }
+
+    mostrarAyudaGato();
+    salida.writeUTF("");
     
         mostrarAyudaGato();
         salida.writeUTF("");
@@ -930,7 +956,7 @@ public class UnCliente implements Runnable {
             salida.writeUTF("[SISTEMA]: Invitación enviada a " + invitado + ".");
             System.out.println(nombreCliente + " invitó a jugar a " + invitado);
         } else {
-            salida.writeUTF("[ERROR]: " + invitado + " ya tiene una invitación pendiente.");
+            salida.writeUTF("[ERROR]: " + invitado + " ya tiene una invitación pendiente, espera a que acepte o rechace");
         }
     }
     

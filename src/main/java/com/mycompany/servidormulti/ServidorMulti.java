@@ -225,4 +225,25 @@ public class ServidorMulti {
     public static BaseDatos.EstadisticasEnfrentamiento obtenerEstadisticasEnfrentamiento(String jugador1, String jugador2) {
         return bd.obtenerEstadisticasEnfrentamiento(jugador1, jugador2);
     }
+    public static synchronized String obtenerInvitadoDe(String invitador) {
+  
+    for (java.util.Map.Entry<String, String> entrada : invitacionesPendientes.entrySet()) {
+        if (entrada.getValue().equals(invitador)) {
+         
+            String claveInvitacion = entrada.getKey();
+            return claveInvitacion.replace("_invitacion", "");
+        }
+    }
+    return null;
+}
+
+public static synchronized boolean tieneInvitacionPendiente(String invitador) {
+  
+    for (String valor : invitacionesPendientes.values()) {
+        if (valor.equals(invitador)) {
+            return true;
+        }
+    }
+    return false;
+}
 }
