@@ -1,13 +1,8 @@
-/*
- * Click nbfs://nbhost/SystemFileSystem/Templates/Licenses/license-default.txt to change this license
- * Click nbfs://nbhost/SystemFileSystem/Templates/Classes/Class.java to edit this template
- */
 package compute;
 
-/**
- *
- * @author Yaelll
- */
-public class Compute {
-    
+import java.rmi.Remote;
+import java.rmi.RemoteException;
+
+public interface Compute extends Remote {
+     T executeTask(Task t) throws RemoteException;
 }
