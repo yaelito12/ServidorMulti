@@ -7,8 +7,9 @@ import java.rmi.registry.Registry;
 
 public class ComputePi {
     public static void main(String args[]) {
-        if (System.getSecurityManager() == null) {
-            System.setSecurityManager(new SecurityManager());
+        if (args.length < 2) {
+            System.err.println("Usage: java client.ComputePi <server_host> <digits>");
+            System.exit(1);
         }
         try {
             String name = "Compute";
@@ -16,6 +17,7 @@ public class ComputePi {
             Compute comp = (Compute) registry.lookup(name);
             Pi task = new Pi(Integer.parseInt(args[1]));
             BigDecimal pi = comp.executeTask(task);
+            System.out.println("Pi calculated with " + args[1] + " digits:");
             System.out.println(pi);
         } catch (Exception e) {
             System.err.println("ComputePi exception:");
